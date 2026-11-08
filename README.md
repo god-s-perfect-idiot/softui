@@ -2,6 +2,12 @@
 
 Portable guest OS. Zig kernel/runtime compiles to WASM; a tiny Web bootstrap implements Host ABI and blits SoftUI's framebuffer to a canvas. Boot opens a SoftUI **bootloader** (GUI default, or SoftShell CLI); all pixels are SoftUI-drawn — no host UI.
 
+## Screenshots
+
+| GUI desktop | SoftShell CLI |
+|-------------|----------------|
+| ![SoftUI GUI desktop](docs/images/gui.png) | ![SoftShell CLI](docs/images/cli.png) |
+
 ## Quick start
 
 ```bash
