@@ -1,39 +1,54 @@
-//! SoftUI bootloader + desktop chrome. Guest-owned pixels; dual keyboard/pointer UX.
+//! SoftUI bootloader + hybrid shell.
+//! Mobile-first UX (Palm webOS / Firefox OS / Ubuntu Touch / postmarketOS cues):
+//! large targets, bottom dock, edge gestures, spacious launcher.
 
 const font = @import("font.zig");
 const input = @import("input.zig");
 
 pub const BOOT_TIMEOUT_NS: u64 = 10_000_000_000;
+/// Compact top strip (phone status panel).
 pub const BAR_H: u32 = 36;
-pub const HIT_MIN: u32 = 44;
+/// Bottom dock / gesture shelf — primary navigation on phones.
+pub const TRAY_H: u32 = 64;
+pub const HIT_MIN: u32 = 48;
+/// Bottom edge strip that accepts swipe-up → Home (Ubuntu Touch / webOS).
+pub const EDGE_H: u32 = 20;
+const PHONE_W: u32 = 600;
 
 pub const Stage = enum { bootloader, desktop, app, cli };
-
 pub const Choice = enum { gui, cli };
-
 pub const Launch = enum { shell, donut, plasma, stars, cube, fire };
 
 const TILE_COUNT: u32 = 6;
-const TILE_LABELS = [_][]const u8{
-    "Shell",
-    "Donut",
-    "Plasma",
-    "Stars",
-    "Cube",
-    "Fire",
+const TILE_LABELS = [_][]const u8{ "Shell", "Donut", "Plasma", "Stars", "Cube", "Fire" };
+const TILE_GLYPHS = [_]u8{ '>', 'O', '~', '*', '#', '^' };
+const TILE_TINTS = [_]u32{
+    0xFF3D8FD4,
+    0xFFE0A05A,
+    0xFF5BC4A0,
+    0xFF9AA6FF,
+    0xFF6EC6E0,
+    0xFFE07878,
 };
 
-const COLOR_BG: u32 = 0xFF0B0E12;
-const COLOR_BG2: u32 = 0xFF0E1218;
-const COLOR_PANEL: u32 = 0xFF141A22;
-const COLOR_BAR: u32 = 0xFF10161E;
-const COLOR_FG: u32 = 0xFFD7E0EA;
-const COLOR_DIM: u32 = 0xFF7A8796;
-const COLOR_ACCENT: u32 = 0xFF50B4FF;
-const COLOR_SELECT: u32 = 0xFF1A3048;
+const COLOR_BG: u32 = 0xFF070B12;
+const COLOR_BG_TOP: u32 = 0xFF152538;
+const COLOR_PANEL: u32 = 0xFF15202C;
+const COLOR_PANEL2: u32 = 0xFF1A2838;
+const COLOR_BAR: u32 = 0xE00E1620;
+const COLOR_TRAY: u32 = 0xF40A1018;
+const COLOR_FG: u32 = 0xFFE8EEF5;
+const COLOR_DIM: u32 = 0xFF8090A4;
+const COLOR_MUTED: u32 = 0xFF5A6A7C;
+const COLOR_ACCENT: u32 = 0xFF5CBCFF;
+const COLOR_ACCENT_DIM: u32 = 0xFF2A5A80;
+const COLOR_SELECT: u32 = 0xFF1C3A58;
 const COLOR_SCRIM: u32 = 0xB0000000;
+const COLOR_HAIR: u32 = 0xFF243448;
+const COLOR_PILL: u32 = 0xFFD0DAE6;
 
-const TAP_SLOP: u32 = 12;
+const TAP_SLOP: u32 = 16;
+const SWIPE_MIN: u32 = 48;
 
 const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
 
@@ -50,6 +65,7 @@ pub const Gui = struct {
     ptr_down: bool = false,
     ptr_x: u32 = 0,
     ptr_y: u32 = 0,
+    now_ns: u64 = 0,
     on_choose_cli: ?*const fn () void = null,
     on_choose_gui: ?*const fn () void = null,
     on_launch: ?*const fn (Launch) void = null,
@@ -73,19 +89,17 @@ pub const Gui = struct {
     }
 
     pub fn appTitle(self: *const Gui) []const u8 {
-        return switch (self.app_launch) {
-            .shell => "Shell",
-            .donut => "Donut",
-            .plasma => "Plasma",
-            .stars => "Stars",
-            .cube => "Cube",
-            .fire => "Fire",
-        };
+        return TILE_LABELS[@intFromEnum(self.app_launch)];
+    }
+
+    pub fn isPhone(self: *const Gui) bool {
+        return self.layout_w > 0 and self.layout_w < PHONE_W;
     }
 
     pub fn tick(self: *Gui, now_ns: u64, width: u32, height: u32) void {
         self.layout_w = width;
         self.layout_h = height;
+        self.now_ns = now_ns;
         switch (self.stage) {
             .bootloader => self.tickBootloader(now_ns),
             .desktop => self.tickDesktop(),
@@ -97,10 +111,11 @@ pub const Gui = struct {
     pub fn draw(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
         self.layout_w = width;
         self.layout_h = height;
+        self.now_ns = now_ns;
         switch (self.stage) {
             .bootloader => self.drawBootloader(fb, width, height, stride, now_ns),
-            .desktop => self.drawDesktop(fb, width, height, stride),
-            .app => self.drawAppChrome(fb, width, height, stride),
+            .desktop => self.drawDesktop(fb, width, height, stride, now_ns),
+            .app => self.drawAppChrome(fb, width, height, stride, now_ns),
             .cli => {},
         }
     }
@@ -126,7 +141,7 @@ pub const Gui = struct {
     }
 
     fn tickApp(self: *Gui) void {
-        // Keys stay with SoftShell; Gui only owns Close via pointer.
+        // Keys belong to SoftShell / demos — chrome is pointer + gestures only.
         self.drainPointers(0);
     }
 
@@ -228,19 +243,18 @@ pub const Gui = struct {
     }
 
     fn launchTile(self: *Gui, idx: u32) void {
-        const launch: Launch = switch (idx) {
-            0 => .shell,
-            1 => .donut,
-            2 => .plasma,
-            3 => .stars,
-            4 => .cube,
-            else => .fire,
-        };
+        const launch: Launch = @enumFromInt(@as(u8, @intCast(idx)));
         self.tile = idx;
         self.app_launch = launch;
         self.stage = .app;
         self.info_open = false;
         if (self.on_launch) |cb| cb(launch);
+    }
+
+    fn goHome(self: *Gui) void {
+        if (self.stage == .app) {
+            if (self.on_close_app) |cb| cb();
+        }
     }
 
     fn handlePointer(self: *Gui, p: input.Pointer, now_ns: u64) void {
@@ -252,9 +266,27 @@ pub const Gui = struct {
         }
         if (p.kind != input.PTR_UP or !self.ptr_down) return;
         self.ptr_down = false;
-        const dx = if (p.x > self.ptr_x) p.x - self.ptr_x else self.ptr_x - p.x;
-        const dy = if (p.y > self.ptr_y) p.y - self.ptr_y else self.ptr_y - p.y;
-        if (dx > TAP_SLOP or dy > TAP_SLOP) return;
+
+        const dx_i: i32 = @as(i32, @intCast(p.x)) - @as(i32, @intCast(self.ptr_x));
+        const dy_i: i32 = @as(i32, @intCast(p.y)) - @as(i32, @intCast(self.ptr_y));
+        const adx: u32 = if (dx_i < 0) @intCast(-dx_i) else @intCast(dx_i);
+        const ady: u32 = if (dy_i < 0) @intCast(-dy_i) else @intCast(dy_i);
+
+        // Edge gestures (mobile shells):
+        // - swipe up from bottom shelf → Home (Ubuntu Touch / webOS)
+        // - swipe down from status bar → help / quick sheet
+        if (self.stage == .app or self.stage == .desktop) {
+            if (self.ptr_y + EDGE_H >= self.layout_h and dy_i < 0 and ady >= SWIPE_MIN and ady > adx) {
+                self.goHome();
+                return;
+            }
+            if (self.ptr_y < BAR_H + 8 and dy_i > 0 and ady >= SWIPE_MIN and ady > adx) {
+                self.info_open = true;
+                return;
+            }
+        }
+
+        if (adx > TAP_SLOP or ady > TAP_SLOP) return;
         self.activateAt(self.ptr_x, self.ptr_y, now_ns);
     }
 
@@ -262,13 +294,6 @@ pub const Gui = struct {
         const w = self.layout_w;
         const h = self.layout_h;
         if (w == 0 or h == 0) return;
-
-        if (self.stage == .app) {
-            if (hit(x, y, closeRect(w))) {
-                if (self.on_close_app) |cb| cb();
-            }
-            return;
-        }
 
         if (self.info_open) {
             const card = infoCardRect(w, h);
@@ -279,14 +304,37 @@ pub const Gui = struct {
             return;
         }
 
-        if (hit(x, y, infoBtnRect(w))) {
-            self.info_open = true;
-            if (self.stage == .bootloader) self.resetDeadline(now_ns);
-            return;
+        if (self.stage == .desktop or self.stage == .app or self.stage == .bootloader) {
+            if (hit(x, y, infoBtnRect(w))) {
+                self.info_open = true;
+                if (self.stage == .bootloader) self.resetDeadline(now_ns);
+                return;
+            }
+            if (hit(x, y, kbdBtnRect(w))) {
+                if (self.on_toggle_osk) |cb| cb();
+                if (self.stage == .bootloader) self.resetDeadline(now_ns);
+                return;
+            }
         }
-        if (hit(x, y, kbdBtnRect(w))) {
-            if (self.on_toggle_osk) |cb| cb();
-            if (self.stage == .bootloader) self.resetDeadline(now_ns);
+
+        if (self.stage == .app) {
+            if (hit(x, y, closeRect(w))) {
+                if (self.on_close_app) |cb| cb();
+                return;
+            }
+            // Center home pill or home hit
+            if (hit(x, y, homePillRect(w, h)) or hit(x, y, homeTrayRect(w, h))) {
+                self.goHome();
+                return;
+            }
+            var i: u32 = 0;
+            while (i < TILE_COUNT) : (i += 1) {
+                if (hit(x, y, trayAppRect(w, h, i))) {
+                    if (i == @intFromEnum(self.app_launch)) return;
+                    self.launchTile(i);
+                    return;
+                }
+            }
             return;
         }
 
@@ -307,9 +355,10 @@ pub const Gui = struct {
         }
 
         if (self.stage == .desktop) {
+            if (hit(x, y, homePillRect(w, h)) or hit(x, y, homeTrayRect(w, h))) return;
             var i: u32 = 0;
             while (i < TILE_COUNT) : (i += 1) {
-                if (hit(x, y, tileRect(w, h, i))) {
+                if (hit(x, y, trayAppRect(w, h, i)) or hit(x, y, iconTileRect(w, h, i))) {
                     self.launchTile(i);
                     return;
                 }
@@ -318,108 +367,179 @@ pub const Gui = struct {
     }
 
     fn drawBootloader(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
-        fillBg(fb, stride, width, height);
-        self.drawTopBar(fb, width, height, stride, "boot");
+        fillAtmosphere(fb, stride, width, height, now_ns);
+        self.drawStatusBar(fb, width, height, stride, now_ns, "boot", false);
 
+        const phone = width < PHONE_W;
         const title = "SoftUI";
-        const subtitle = "bootloader";
-        const title_y: u32 = BAR_H + if (height > BAR_H + 160) (height - BAR_H) / 2 -| 70 else 24;
+        const subtitle = if (phone) "tap to begin" else "choose a session";
+        const title_y: u32 = BAR_H + if (height > BAR_H + TRAY_H + 200) (height - BAR_H - TRAY_H) / 2 -| 90 else 24;
         drawText(fb, stride, width, centerX(width, title), title_y, title, COLOR_ACCENT);
         drawText(fb, stride, width, centerX(width, subtitle), title_y + 18, subtitle, COLOR_DIM);
+        const rule_w: u32 = 40;
+        const rule_x: u32 = if (width > rule_w) (width - rule_w) / 2 else 0;
+        fill(fb, stride, width, height, rule_x, title_y + 12, rule_w, 2, COLOR_ACCENT_DIM);
 
         const layout = bootChoiceLayout(width, height);
-        self.drawButton(fb, stride, width, height, layout.gui, "GUI", self.choice == .gui);
-        self.drawButton(fb, stride, width, height, layout.cli, "CLI", self.choice == .cli);
+        self.drawChoiceCard(fb, stride, width, height, layout.gui, "GUI", "launcher + dock", self.choice == .gui);
+        self.drawChoiceCard(fb, stride, width, height, layout.cli, "CLI", "SoftShell", self.choice == .cli);
 
         var msg_buf: [24]u8 = undefined;
-        const remain_s = remainingSeconds(self.deadline_ns, now_ns, self.armed);
-        const msg = formatAutoMsg(&msg_buf, remain_s);
-        const msg_y = @max(layout.gui.y, layout.cli.y) + @max(layout.gui.h, layout.cli.h) + 20;
-        drawText(fb, stride, width, centerX(width, msg), msg_y, msg, COLOR_DIM);
+        const msg = formatAutoMsg(&msg_buf, remainingSeconds(self.deadline_ns, now_ns, self.armed));
+        const msg_y = @max(layout.gui.y, layout.cli.y) + @max(layout.gui.h, layout.cli.h) + 18;
+        if (msg_y + 12 < height -| TRAY_H) {
+            drawText(fb, stride, width, centerX(width, msg), msg_y, msg, COLOR_MUTED);
+        }
 
+        self.drawDock(fb, width, height, stride, false);
         if (self.info_open) self.drawInfoSheet(fb, width, height, stride);
     }
 
-    fn drawDesktop(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
-        fillBg(fb, stride, width, height);
-        self.drawTopBar(fb, width, height, stride, "desktop");
+    fn drawDesktop(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
+        fillAtmosphere(fb, stride, width, height, now_ns);
+        self.drawStatusBar(fb, width, height, stride, now_ns, "home", false);
+
+        const phone = width < PHONE_W;
+        // Brand-first homescreen (Firefox OS / webOS launcher energy)
+        const brand = "SoftUI";
+        const tag = if (phone) "tap an app" else "your canvas OS";
+        const brand_y: u32 = BAR_H + if (phone) @as(u32, 14) else @as(u32, 18);
+        drawText(fb, stride, width, 16, brand_y, brand, COLOR_ACCENT);
+        drawText(fb, stride, width, 16, brand_y + 14, tag, COLOR_MUTED);
+        fill(fb, stride, width, height, 16, brand_y + 26, 36, 2, COLOR_ACCENT_DIM);
 
         var i: u32 = 0;
         while (i < TILE_COUNT) : (i += 1) {
-            const r = tileRect(width, height, i);
-            const selected = i == self.tile;
-            self.drawButton(fb, stride, width, height, r, TILE_LABELS[i], selected);
+            self.drawAppIcon(fb, stride, width, height, iconTileRect(width, height, i), i, i == self.tile);
         }
 
+        self.drawDock(fb, width, height, stride, false);
         if (self.info_open) self.drawInfoSheet(fb, width, height, stride);
     }
 
-    pub fn drawAppChrome(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
-        fill(fb, stride, width, height, 0, 0, width, BAR_H, COLOR_BAR);
-        fill(fb, stride, width, height, 0, BAR_H -| 1, width, 1, COLOR_SELECT);
-        drawText(fb, stride, width, 12, (BAR_H -| font.GLYPH_H) / 2, "SoftUI", COLOR_ACCENT);
-        drawText(fb, stride, width, 72, (BAR_H -| font.GLYPH_H) / 2, self.appTitle(), COLOR_FG);
-
-        var res_buf: [24]u8 = undefined;
-        const res = formatRes(&res_buf, width, height);
-        const res_x = width -| @as(u32, @intCast(res.len * font.GLYPH_W)) -| HIT_MIN -| 16;
-        if (res_x > 120) {
-            drawText(fb, stride, width, res_x, (BAR_H -| font.GLYPH_H) / 2, res, COLOR_DIM);
-        }
-
-        const close = closeRect(width);
-        fill(fb, stride, width, height, close.x, close.y, close.w, close.h, COLOR_PANEL);
-        drawBorder(fb, stride, width, height, close, COLOR_ACCENT);
-        drawText(fb, stride, width, close.x + (close.w -| font.GLYPH_W) / 2, close.y + (close.h -| font.GLYPH_H) / 2, "X", COLOR_FG);
+    pub fn drawAppChrome(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
+        self.drawStatusBar(fb, width, height, stride, now_ns, self.appTitle(), true);
+        self.drawDock(fb, width, height, stride, true);
     }
 
-    fn drawTopBar(_: *Gui, fb: []u8, width: u32, height: u32, stride: u32, stage_name: []const u8) void {
+    fn drawStatusBar(_: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64, context: []const u8, show_close: bool) void {
         fill(fb, stride, width, height, 0, 0, width, BAR_H, COLOR_BAR);
-        fill(fb, stride, width, height, 0, BAR_H -| 1, width, 1, COLOR_SELECT);
-        drawText(fb, stride, width, 12, (BAR_H -| font.GLYPH_H) / 2, "SoftUI", COLOR_ACCENT);
-        drawText(fb, stride, width, 72, (BAR_H -| font.GLYPH_H) / 2, stage_name, COLOR_DIM);
+        fill(fb, stride, width, height, 0, BAR_H -| 1, width, 1, COLOR_HAIR);
 
-        var res_buf: [24]u8 = undefined;
-        const res = formatRes(&res_buf, width, height);
-        const info = infoBtnRect(width);
-        const kbd = kbdBtnRect(width);
-        const res_x = kbd.x -| @as(u32, @intCast(res.len * font.GLYPH_W)) -| 12;
-        if (res_x > 120) {
-            drawText(fb, stride, width, res_x, (BAR_H -| font.GLYPH_H) / 2, res, COLOR_DIM);
+        fill(fb, stride, width, height, 10, (BAR_H -| 8) / 2, 8, 8, COLOR_ACCENT);
+        const phone = width < PHONE_W;
+        if (phone) {
+            // Phone: context as title; brand is the chip only
+            drawText(fb, stride, width, 24, (BAR_H -| font.GLYPH_H) / 2, context, COLOR_FG);
+        } else {
+            drawText(fb, stride, width, 24, (BAR_H -| font.GLYPH_H) / 2, "SoftUI", COLOR_ACCENT);
+            drawText(fb, stride, width, 80, (BAR_H -| font.GLYPH_H) / 2, context, COLOR_FG);
         }
 
-        fill(fb, stride, width, height, kbd.x, kbd.y, kbd.w, kbd.h, COLOR_PANEL);
-        drawBorder(fb, stride, width, height, kbd, COLOR_DIM);
-        drawText(fb, stride, width, kbd.x + (kbd.w -| 24) / 2, kbd.y + (kbd.h -| font.GLYPH_H) / 2, "kbd", COLOR_FG);
+        var clock_buf: [8]u8 = undefined;
+        const clock = formatClock(&clock_buf, now_ns);
+        const info = infoBtnRect(width);
+        const kbd = kbdBtnRect(width);
+        const close = closeRect(width);
+        const right_edge: u32 = if (show_close) close.x else kbd.x;
+        const clock_x = right_edge -| @as(u32, @intCast(clock.len * font.GLYPH_W)) -| 10;
+        if (clock_x > 70) {
+            drawText(fb, stride, width, clock_x, (BAR_H -| font.GLYPH_H) / 2, clock, COLOR_DIM);
+        }
 
-        fill(fb, stride, width, height, info.x, info.y, info.w, info.h, COLOR_PANEL);
-        drawBorder(fb, stride, width, height, info, COLOR_DIM);
-        drawText(fb, stride, width, info.x + (info.w -| font.GLYPH_W) / 2, info.y + (info.h -| font.GLYPH_H) / 2, "?", COLOR_FG);
+        drawChip(fb, stride, width, height, kbd, "kbd", false);
+        drawChip(fb, stride, width, height, info, "?", false);
+        if (show_close) drawChip(fb, stride, width, height, close, "X", true);
+    }
+
+    fn drawDock(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, in_app: bool) void {
+        const ty = height -| TRAY_H;
+        fill(fb, stride, width, height, 0, ty, width, TRAY_H, COLOR_TRAY);
+        fill(fb, stride, width, height, 0, ty, width, 1, COLOR_HAIR);
+
+        // Gesture hint pill (webOS / modern phone home indicator)
+        const pill = homePillRect(width, height);
+        fill(fb, stride, width, height, pill.x, pill.y, pill.w, pill.h, COLOR_PILL);
+
+        // Favorite apps across the dock (Firefox OS / Ubuntu launcher)
+        var i: u32 = 0;
+        while (i < TILE_COUNT) : (i += 1) {
+            const r = trayAppRect(width, height, i);
+            const active = in_app and i == @intFromEnum(self.app_launch);
+            const tint = TILE_TINTS[i];
+            fill(fb, stride, width, height, r.x, r.y, r.w, r.h, if (active) COLOR_SELECT else COLOR_PANEL2);
+            drawBorder(fb, stride, width, height, r, if (active) tint else COLOR_HAIR);
+            var gbuf: [1]u8 = .{TILE_GLYPHS[i]};
+            drawText(fb, stride, width, r.x + (r.w -| font.GLYPH_W) / 2, r.y + (r.h -| font.GLYPH_H) / 2 -| 4, gbuf[0..], if (active) tint else COLOR_FG);
+            if (active) {
+                fill(fb, stride, width, height, r.x + 8, r.y + r.h -| 6, r.w -| 16, 3, tint);
+            }
+        }
+
+        // Tiny "swipe up" cue when in an app
+        if (in_app) {
+            const hint = "swipe up";
+            const hx = centerX(width, hint);
+            if (hx + 64 < width and ty > 10) {
+                drawText(fb, stride, width, hx, ty + 2, hint, COLOR_MUTED);
+            }
+        }
+    }
+
+    fn drawAppIcon(_: *Gui, fb: []u8, stride: u32, width: u32, height: u32, r: Rect, idx: u32, selected: bool) void {
+        const tint = TILE_TINTS[idx];
+        fill(fb, stride, width, height, r.x, r.y, r.w, r.h, if (selected) COLOR_SELECT else COLOR_PANEL);
+        drawBorder(fb, stride, width, height, r, if (selected) tint else COLOR_HAIR);
+        if (selected) fill(fb, stride, width, height, r.x, r.y, r.w, 3, tint);
+
+        // Large touch icon plate (phone launcher)
+        const plate: u32 = @min(@min(56, r.w -| 20), r.h -| 28);
+        const px = r.x + (r.w -| plate) / 2;
+        const py = r.y + 12;
+        fill(fb, stride, width, height, px, py, plate, plate, COLOR_PANEL2);
+        drawBorder(fb, stride, width, height, .{ .x = px, .y = py, .w = plate, .h = plate }, tint);
+        // Inner accent wash
+        fill(fb, stride, width, height, px + 2, py + 2, plate -| 4, 4, tint);
+        var gbuf: [1]u8 = .{TILE_GLYPHS[idx]};
+        drawText(fb, stride, width, px + (plate -| font.GLYPH_W) / 2, py + (plate -| font.GLYPH_H) / 2, gbuf[0..], COLOR_FG);
+
+        const label = TILE_LABELS[idx];
+        const lx = r.x + (r.w -| @as(u32, @intCast(label.len * font.GLYPH_W))) / 2;
+        const ly = @min(r.y + r.h -| 14, py + plate + 8);
+        drawText(fb, stride, width, lx, ly, label, if (selected) COLOR_FG else COLOR_DIM);
+    }
+
+    fn drawChoiceCard(_: *Gui, fb: []u8, stride: u32, width: u32, height: u32, r: Rect, title: []const u8, sub: []const u8, selected: bool) void {
+        fill(fb, stride, width, height, r.x, r.y, r.w, r.h, if (selected) COLOR_SELECT else COLOR_PANEL);
+        drawBorder(fb, stride, width, height, r, if (selected) COLOR_ACCENT else COLOR_HAIR);
+        if (selected) fill(fb, stride, width, height, r.x, r.y, 4, r.h, COLOR_ACCENT);
+        drawText(fb, stride, width, r.x + 16, r.y + r.h / 2 -| 12, title, if (selected) COLOR_ACCENT else COLOR_FG);
+        drawText(fb, stride, width, r.x + 16, r.y + r.h / 2 + 6, sub, COLOR_MUTED);
     }
 
     fn drawInfoSheet(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
         _ = self;
-        // Scrim
         fill(fb, stride, width, height, 0, 0, width, height, COLOR_SCRIM);
         const card = infoCardRect(width, height);
         fill(fb, stride, width, height, card.x, card.y, card.w, card.h, COLOR_PANEL);
         drawBorder(fb, stride, width, height, card, COLOR_ACCENT);
+        fill(fb, stride, width, height, card.x, card.y, card.w, 3, COLOR_ACCENT);
 
         drawText(fb, stride, width, card.x + 16, card.y + 14, "SoftUI", COLOR_ACCENT);
         var res_buf: [28]u8 = undefined;
-        const res = formatResLine(&res_buf, width, height);
-        drawText(fb, stride, width, card.x + 16, card.y + 36, res, COLOR_FG);
+        drawText(fb, stride, width, card.x + 16, card.y + 34, formatResLine(&res_buf, width, height), COLOR_FG);
 
         const lines = [_][]const u8{
-            "tap or enter  activate",
-            "arrows         focus",
-            "esc / X        back",
-            "?              close help",
-            "kbd            on-screen keys",
+            "tap app         open",
+            "dock icons      switch",
+            "swipe up        home",
+            "swipe down      help",
+            "X / home pill   close",
+            "kbd             keyboard",
         };
         var i: u32 = 0;
         while (i < lines.len) : (i += 1) {
-            drawText(fb, stride, width, card.x + 16, card.y + 60 + i * 16, lines[i], COLOR_DIM);
+            drawText(fb, stride, width, card.x + 16, card.y + 54 + i * 15, lines[i], COLOR_DIM);
         }
 
         const close = infoCloseRect(card);
@@ -427,35 +547,25 @@ pub const Gui = struct {
         drawBorder(fb, stride, width, height, close, COLOR_ACCENT);
         drawText(fb, stride, width, close.x + (close.w -| 40) / 2, close.y + (close.h -| font.GLYPH_H) / 2, "Close", COLOR_FG);
     }
-
-    fn drawButton(
-        self: *Gui,
-        fb: []u8,
-        stride: u32,
-        width: u32,
-        height: u32,
-        r: Rect,
-        label: []const u8,
-        selected: bool,
-    ) void {
-        _ = self;
-        fill(fb, stride, width, height, r.x, r.y, r.w, r.h, if (selected) COLOR_SELECT else COLOR_PANEL);
-        drawBorder(fb, stride, width, height, r, if (selected) COLOR_ACCENT else COLOR_DIM);
-        const lx = r.x + (r.w -| @as(u32, @intCast(label.len * font.GLYPH_W))) / 2;
-        const ly = r.y + (r.h -| font.GLYPH_H) / 2;
-        drawText(fb, stride, width, lx, ly, label, if (selected) COLOR_ACCENT else COLOR_FG);
-    }
 };
+
+fn drawChip(fb: []u8, stride: u32, width: u32, height: u32, r: Rect, label: []const u8, accent: bool) void {
+    fill(fb, stride, width, height, r.x, r.y, r.w, r.h, if (accent) COLOR_SELECT else COLOR_PANEL2);
+    drawBorder(fb, stride, width, height, r, if (accent) COLOR_ACCENT else COLOR_HAIR);
+    const tw: u32 = @intCast(label.len * font.GLYPH_W);
+    drawText(fb, stride, width, r.x + (r.w -| tw) / 2, r.y + (r.h -| font.GLYPH_H) / 2, label, if (accent) COLOR_ACCENT else COLOR_FG);
+}
 
 const BootLayout = struct { gui: Rect, cli: Rect };
 
 fn bootChoiceLayout(width: u32, height: u32) BootLayout {
-    const btn_w: u32 = if (width < 560) @max(HIT_MIN * 3, width -| 48) else 160;
-    const btn_h: u32 = @max(HIT_MIN, 48);
-    const gap: u32 = 16;
-    const stacked = width < 560;
-    const title_y: u32 = BAR_H + if (height > BAR_H + 160) (height - BAR_H) / 2 -| 70 else 24;
-    const origin_y = title_y + 48;
+    // Prefer stacked full-width cards on phones (Firefox OS style).
+    const stacked = width < PHONE_W;
+    const btn_w: u32 = if (stacked) @max(HIT_MIN * 4, width -| 40) else 210;
+    const btn_h: u32 = @max(HIT_MIN + 12, 60);
+    const gap: u32 = 14;
+    const title_y: u32 = BAR_H + if (height > BAR_H + TRAY_H + 200) (height - BAR_H - TRAY_H) / 2 -| 90 else 24;
+    const origin_y = title_y + 52;
 
     if (stacked) {
         const x: u32 = if (width > btn_w) (width - btn_w) / 2 else 16;
@@ -473,24 +583,29 @@ fn bootChoiceLayout(width: u32, height: u32) BootLayout {
 }
 
 fn gridCols(width: u32) u32 {
-    if (width < 360) return 1;
-    if (width < 720) return 2;
+    // Phone: 2-up launcher (Firefox OS / webOS). Wider: 3.
+    if (width < PHONE_W) return 2;
     return 3;
 }
 
-fn tileRect(width: u32, height: u32, index: u32) Rect {
+fn contentTop(width: u32) u32 {
+    return BAR_H + if (width < PHONE_W) @as(u32, 48) else @as(u32, 56);
+}
+
+fn iconTileRect(width: u32, height: u32, index: u32) Rect {
     const cols = gridCols(width);
     const rows = (TILE_COUNT + cols - 1) / cols;
-    const gap: u32 = 12;
-    const margin: u32 = 16;
+    const gap: u32 = if (width < PHONE_W) 12 else 16;
+    const margin: u32 = if (width < PHONE_W) 14 else 22;
+    const top = contentTop(width);
     const avail_w = width -| margin * 2;
-    const avail_h = height -| BAR_H -| margin * 2;
+    const avail_h = height -| top -| TRAY_H -| margin;
     const tile_w = @max(HIT_MIN * 2, (avail_w -| (cols -| 1) * gap) / cols);
-    const tile_h = @max(HIT_MIN + 8, (avail_h -| (rows -| 1) * gap) / rows);
+    const tile_h = @max(HIT_MIN * 2, (avail_h -| (rows -| 1) * gap) / rows);
     const grid_w = cols * tile_w + (cols -| 1) * gap;
     const grid_h = rows * tile_h + (rows -| 1) * gap;
     const origin_x: u32 = if (width > grid_w) (width - grid_w) / 2 else margin;
-    const origin_y: u32 = BAR_H + if (height > grid_h + BAR_H) (height - BAR_H - grid_h) / 2 else margin;
+    const origin_y: u32 = top + if (avail_h > grid_h) (avail_h - grid_h) / 3 else 0;
     const col = index % cols;
     const row = index / cols;
     return .{
@@ -501,26 +616,71 @@ fn tileRect(width: u32, height: u32, index: u32) Rect {
     };
 }
 
+fn dockIconSize(height: u32) u32 {
+    _ = height;
+    return @max(HIT_MIN, TRAY_H -| 18);
+}
+
+fn homePillRect(width: u32, height: u32) Rect {
+    // Center home indicator — primary thumb target
+    const pw: u32 = if (width < PHONE_W) 56 else 72;
+    const ph: u32 = 5;
+    return .{
+        .x = if (width > pw) (width - pw) / 2 else 8,
+        .y = height -| 12,
+        .w = pw,
+        .h = ph,
+    };
+}
+
+fn homeTrayRect(width: u32, height: u32) Rect {
+    // Larger invisible hit around the pill for thumbs
+    const pill = homePillRect(width, height);
+    const pad_x: u32 = 24;
+    return .{
+        .x = pill.x -| pad_x,
+        .y = height -| TRAY_H,
+        .w = pill.w + pad_x * 2,
+        .h = TRAY_H,
+    };
+}
+
+fn trayAppRect(width: u32, height: u32, index: u32) Rect {
+    const s = dockIconSize(height);
+    const gap: u32 = if (width < PHONE_W) 6 else 10;
+    const total = TILE_COUNT * s + (TILE_COUNT - 1) * gap;
+    // Sit above the home pill, centered
+    const origin_x: u32 = if (width > total) (width - total) / 2 else 8;
+    const origin_y: u32 = height -| TRAY_H + 6;
+    return .{
+        .x = origin_x + index * (s + gap),
+        .y = origin_y,
+        .w = s,
+        .h = s,
+    };
+}
+
 fn infoBtnRect(width: u32) Rect {
     const s: u32 = @max(HIT_MIN -| 4, BAR_H -| 8);
-    return .{ .x = width -| s -| 8, .y = (BAR_H -| s) / 2, .w = s, .h = s };
+    return .{ .x = width -| s -| 6, .y = (BAR_H -| s) / 2, .w = s, .h = s };
 }
 
 fn kbdBtnRect(width: u32) Rect {
     const info = infoBtnRect(width);
     const s = info.h;
-    const w: u32 = @max(s + 8, 48);
-    return .{ .x = info.x -| w -| 8, .y = info.y, .w = w, .h = s };
+    const w: u32 = @max(s + 4, 44);
+    return .{ .x = info.x -| w -| 6, .y = info.y, .w = w, .h = s };
 }
 
 fn closeRect(width: u32) Rect {
-    const s: u32 = @max(HIT_MIN -| 4, BAR_H -| 8);
-    return .{ .x = width -| s -| 8, .y = (BAR_H -| s) / 2, .w = s, .h = s };
+    const kbd = kbdBtnRect(width);
+    const s = kbd.h;
+    return .{ .x = kbd.x -| s -| 6, .y = kbd.y, .w = s, .h = s };
 }
 
 fn infoCardRect(width: u32, height: u32) Rect {
-    const w: u32 = @min(width -| 24, 320);
-    const h: u32 = @min(height -| 24, 200);
+    const w: u32 = @min(width -| 20, 360);
+    const h: u32 = @min(height -| 20, 260);
     return .{
         .x = if (width > w) (width - w) / 2 else 8,
         .y = if (height > h) (height - h) / 2 else 8,
@@ -530,11 +690,11 @@ fn infoCardRect(width: u32, height: u32) Rect {
 }
 
 fn infoCloseRect(card: Rect) Rect {
-    const bw: u32 = @max(HIT_MIN * 2, 96);
+    const bw: u32 = @max(HIT_MIN * 2, 120);
     const bh: u32 = HIT_MIN;
     return .{
         .x = card.x + (card.w -| bw) / 2,
-        .y = card.y + card.h -| bh -| 14,
+        .y = card.y + card.h -| bh -| 12,
         .w = bw,
         .h = bh,
     };
@@ -544,24 +704,25 @@ fn hit(x: u32, y: u32, r: Rect) bool {
     return x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h;
 }
 
-fn fillBg(fb: []u8, stride: u32, width: u32, height: u32) void {
-    fill(fb, stride, width, height, 0, 0, width, height, COLOR_BG);
-    const band = height / 3;
-    if (band > 0) fill(fb, stride, width, height, 0, 0, width, band, COLOR_BG2);
+fn fillAtmosphere(fb: []u8, stride: u32, width: u32, height: u32, now_ns: u64) void {
+    // Two opaque bands only — keep tick under a frame budget even in Debug WASM.
+    const split = height / 3;
+    fill(fb, stride, width, height, 0, 0, width, split, COLOR_BG_TOP);
+    fill(fb, stride, width, height, 0, split, width, height -| split, COLOR_BG);
+    _ = now_ns;
 }
 
 fn drawBorder(fb: []u8, stride: u32, width: u32, height: u32, r: Rect, color: u32) void {
-    fill(fb, stride, width, height, r.x, r.y, r.w, 2, color);
-    fill(fb, stride, width, height, r.x, r.y + r.h -| 2, r.w, 2, color);
-    fill(fb, stride, width, height, r.x, r.y, 2, r.h, color);
-    fill(fb, stride, width, height, r.x + r.w -| 2, r.y, 2, r.h, color);
+    fill(fb, stride, width, height, r.x, r.y, r.w, 1, color);
+    fill(fb, stride, width, height, r.x, r.y + r.h -| 1, r.w, 1, color);
+    fill(fb, stride, width, height, r.x, r.y, 1, r.h, color);
+    fill(fb, stride, width, height, r.x + r.w -| 1, r.y, 1, r.h, color);
 }
 
 fn remainingSeconds(deadline_ns: u64, now_ns: u64, armed: bool) u32 {
     if (!armed) return @intCast(BOOT_TIMEOUT_NS / 1_000_000_000);
     if (now_ns >= deadline_ns) return 0;
-    const left = deadline_ns - now_ns;
-    return @intCast((left + 999_999_999) / 1_000_000_000);
+    return @intCast((deadline_ns - now_ns + 999_999_999) / 1_000_000_000);
 }
 
 fn formatAutoMsg(buf: *[24]u8, seconds: u32) []const u8 {
@@ -585,13 +746,16 @@ fn formatAutoMsg(buf: *[24]u8, seconds: u32) []const u8 {
     return buf[0..i];
 }
 
-fn formatRes(buf: *[24]u8, w: u32, h: u32) []const u8 {
-    var i: usize = 0;
-    i = writeU32(buf, i, w);
-    buf[i] = 'x';
-    i += 1;
-    i = writeU32(buf, i, h);
-    return buf[0..i];
+fn formatClock(buf: *[8]u8, now_ns: u64) []const u8 {
+    const secs: u32 = @truncate(now_ns / 1_000_000_000);
+    const hh = (9 + (secs / 3600)) % 24;
+    const mm = (secs / 60) % 60;
+    buf[0] = '0' + @as(u8, @intCast(hh / 10));
+    buf[1] = '0' + @as(u8, @intCast(hh % 10));
+    buf[2] = ':';
+    buf[3] = '0' + @as(u8, @intCast(mm / 10));
+    buf[4] = '0' + @as(u8, @intCast(mm % 10));
+    return buf[0..5];
 }
 
 fn formatResLine(buf: *[28]u8, w: u32, h: u32) []const u8 {
@@ -622,9 +786,7 @@ fn writeU32(buf: []u8, start: usize, v: u32) usize {
         }
     }
     var i: usize = 0;
-    while (i < len) : (i += 1) {
-        buf[start + i] = tmp[len - 1 - i];
-    }
+    while (i < len) : (i += 1) buf[start + i] = tmp[len - 1 - i];
     return start + len;
 }
 
@@ -635,11 +797,39 @@ fn centerX(width: u32, text: []const u8) u32 {
 }
 
 fn fill(fb: []u8, stride: u32, fb_w: u32, fb_h: u32, x0: u32, y0: u32, w: u32, h: u32, color: u32) void {
+    if (w == 0 or h == 0) return;
+    const a: u8 = @truncate(color >> 24);
+    if (a == 0) return;
+    const r: u8 = @truncate(color >> 16);
+    const g: u8 = @truncate(color >> 8);
+    const b: u8 = @truncate(color);
+    const x1 = @min(x0 +% w, fb_w);
+    const y1 = @min(y0 +% h, fb_h);
+    if (x0 >= x1 or y0 >= y1) return;
+
+    if (a == 255) {
+        // Opaque fast path: tight row loop (no per-pixel helper calls).
+        var y: u32 = y0;
+        while (y < y1) : (y += 1) {
+            var o: usize = @as(usize, y) * @as(usize, stride) + @as(usize, x0) * 4;
+            var x: u32 = x0;
+            while (x < x1) : (x += 1) {
+                if (o + 3 >= fb.len) break;
+                fb[o + 0] = r;
+                fb[o + 1] = g;
+                fb[o + 2] = b;
+                fb[o + 3] = 255;
+                o += 4;
+            }
+        }
+        return;
+    }
+
     var y: u32 = y0;
-    while (y < y0 + h and y < fb_h) : (y += 1) {
+    while (y < y1) : (y += 1) {
         var x: u32 = x0;
-        while (x < x0 + w and x < fb_w) : (x += 1) {
-            put(fb, stride, fb_w, x, y, color);
+        while (x < x1) : (x += 1) {
+            putBlend(fb, stride, fb_w, x, y, color);
         }
     }
 }
@@ -652,6 +842,24 @@ fn put(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {
     fb[o + 1] = @truncate(color >> 8);
     fb[o + 2] = @truncate(color);
     fb[o + 3] = @truncate(color >> 24);
+}
+
+fn putBlend(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {
+    if (x >= width) return;
+    const o: usize = @as(usize, y) * @as(usize, stride) + @as(usize, x) * 4;
+    if (o + 3 >= fb.len) return;
+    const sa: u32 = (color >> 24) & 0xFF;
+    if (sa == 0) return;
+    const sr: u32 = (color >> 16) & 0xFF;
+    const sg: u32 = (color >> 8) & 0xFF;
+    const sb: u32 = color & 0xFF;
+    const dr: u32 = fb[o + 0];
+    const dg: u32 = fb[o + 1];
+    const db: u32 = fb[o + 2];
+    fb[o + 0] = @truncate((sr * sa + dr * (255 - sa)) / 255);
+    fb[o + 1] = @truncate((sg * sa + dg * (255 - sa)) / 255);
+    fb[o + 2] = @truncate((sb * sa + db * (255 - sa)) / 255);
+    fb[o + 3] = 255;
 }
 
 fn drawText(fb: []u8, stride: u32, width: u32, x0: u32, y0: u32, text: []const u8, color: u32) void {

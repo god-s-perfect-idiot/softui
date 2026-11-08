@@ -415,7 +415,7 @@ export fn softui_tick(now_ns: u64) i32 {
             },
             .app => {
                 shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
-                ui.drawAppChrome(fbBytes(), fb_width, fb_height, fb_stride);
+                ui.drawAppChrome(fbBytes(), fb_width, fb_height, fb_stride, now_ns);
             },
             .cli => {
                 shell.draw(fbBytes(), fb_width, fb_height, fb_stride);

@@ -30,6 +30,7 @@ zig build sysroot   # init.sox + init.sofs only
 - `tools/` — `serve.zig`, `pack_sofs.zig`
 - `host-abi/` — C ABI header
 - `docs/` — [OS guides + reference](docs/README.md)
+- `sdk/` — **suigui** GUI language + web preview ([sdk/README.md](sdk/README.md))
 
 SoftUI never calls browser/OS APIs except through Host ABI. Userspace binaries are **`.sox`**. SoftFS edits persist via Host ABI (`localStorage` on Web) — see [docs/guides/persistence.md](docs/guides/persistence.md).
 
@@ -41,3 +42,4 @@ SoftUI never calls browser/OS APIs except through Host ABI. Userspace binaries a
 | OS overview | [docs/guides/overview.md](docs/guides/overview.md) |
 | Filesystem persistence | [docs/guides/persistence.md](docs/guides/persistence.md) |
 | SoftShell caps | [docs/softshell.md](docs/softshell.md) |
+| suigui SDK (GUI apps) | [sdk/README.md](sdk/README.md) |

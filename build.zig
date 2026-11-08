@@ -66,10 +66,17 @@ pub fn build(b: *std.Build) void {
     sysroot_step.dependOn(&run_pack.step);
 
     // --- WASM runtime ---
+    // SoftUI paints a full software framebuffer every frame; Debug WASM is too
+    // slow for interactive browsing, so default the guest to ReleaseFast unless
+    // the user explicitly passes -Doptimize=ReleaseSafe / ReleaseSmall / Debug.
+    const wasm_optimize: std.builtin.OptimizeMode = switch (optimize) {
+        .Debug => .ReleaseFast,
+        else => optimize,
+    };
     const runtime_mod = b.createModule(.{
         .root_source_file = b.path("runtime/src/main.zig"),
         .target = wasm_target,
-        .optimize = optimize,
+        .optimize = wasm_optimize,
     });
     // Shared SoftASM ISA definitions for the VM.
     runtime_mod.addAnonymousImport("isa", .{

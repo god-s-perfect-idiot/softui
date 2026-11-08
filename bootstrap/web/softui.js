@@ -104,8 +104,10 @@ function viewportPixels() {
   const dpr = window.devicePixelRatio || 1;
   const cw = canvas.clientWidth || window.innerWidth || 800;
   const ch = canvas.clientHeight || window.innerHeight || 500;
-  const w = Math.max(1, Math.min(MAX_WIDTH, Math.floor(cw * dpr)));
-  const h = Math.max(1, Math.min(MAX_HEIGHT, Math.floor(ch * dpr)));
+  // Cap DPR scale so Debug WASM stays interactive on HiDPI displays.
+  const scale = Math.min(dpr, 1.5);
+  const w = Math.max(1, Math.min(MAX_WIDTH, Math.floor(cw * scale)));
+  const h = Math.max(1, Math.min(MAX_HEIGHT, Math.floor(ch * scale)));
   return { w, h };
 }
 

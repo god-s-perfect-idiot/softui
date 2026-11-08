@@ -57,6 +57,7 @@ On `softui_start`, SoftUI shows a guest-drawn chooser:
 - Desktop chrome with tiles (Shell, demos)
 - Launch takes the full framebuffer
 - Escape (empty SoftShell line / leave demo) returns to the desktop
+- Hybrid shell: bottom dock + home pill; **swipe up** from the bottom edge → home; **swipe down** from the status bar → help (mobile-first, webOS / Ubuntu Touch inspired)
 
 ### CLI session
 

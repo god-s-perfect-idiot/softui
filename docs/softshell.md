@@ -113,7 +113,7 @@ Direct SoftUI runtime inspection and limited mutation from SoftShell.
 | GUI boot chrome / desktop | **[shipped]** (Phase 4; SoftUI bootloader) |
 | Viewport auto-scale + pointer GUI | **[shipped]** (`softui_resize`, hit-test chrome) |
 | SoftUI on-screen keyboard | **[shipped]** (toggle via bar / Ctrl+Shift+K) |
-| Windowing | deferred by design |
+| Windowing | deferred (hybrid shell: dock + gestures; no floating WM) |
 
 ---
 

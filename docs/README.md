@@ -18,6 +18,7 @@ When behavior changes, update the matching **guide** (narrative) and **reference
 1. [OS overview](guides/overview.md) — what SoftUI is and is not
 2. [Boot path](guides/boot.md) — power-on to SoftShell prompt
 3. [Filesystem persistence](guides/persistence.md) — how SoftFS survives reload
+4. [suigui SDK](../sdk/README.md) — high-level GUI language + web preview
 
 ## Guides (elaborate)
 
