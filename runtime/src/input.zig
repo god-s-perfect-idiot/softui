@@ -1,4 +1,4 @@
-//! SoftUI keyboard event queue (Host ABI → kernel). No host widgets.
+//! SoftUI keyboard + pointer queues (Host ABI → kernel). No host widgets.
 
 pub const KEY_BACKSPACE: u32 = 8;
 pub const KEY_TAB: u32 = 9;
@@ -12,9 +12,20 @@ pub const KEY_HOME: u32 = 0x104;
 pub const KEY_END: u32 = 0x105;
 pub const KEY_DELETE: u32 = 0x106;
 
+pub const PTR_MOVE: u32 = 0;
+pub const PTR_DOWN: u32 = 1;
+pub const PTR_UP: u32 = 2;
+
 pub const Event = struct {
     key: u32,
     mods: u32,
+};
+
+pub const Pointer = struct {
+    x: u32,
+    y: u32,
+    buttons: u32,
+    kind: u32,
 };
 
 const CAP: usize = 64;
@@ -24,15 +35,22 @@ var head: usize = 0;
 var tail: usize = 0;
 var count: usize = 0;
 
+var pq: [CAP]Pointer = undefined;
+var p_head: usize = 0;
+var p_tail: usize = 0;
+var p_count: usize = 0;
+
 pub fn reset() void {
     head = 0;
     tail = 0;
     count = 0;
+    p_head = 0;
+    p_tail = 0;
+    p_count = 0;
 }
 
 pub fn push(key: u32, mods: u32) void {
     if (count == CAP) {
-        // Drop oldest.
         head = (head + 1) % CAP;
         count -= 1;
     }
@@ -51,4 +69,22 @@ pub fn pop() ?Event {
 
 pub fn pending() usize {
     return count;
+}
+
+pub fn pushPointer(x: u32, y: u32, buttons: u32, kind: u32) void {
+    if (p_count == CAP) {
+        p_head = (p_head + 1) % CAP;
+        p_count -= 1;
+    }
+    pq[p_tail] = .{ .x = x, .y = y, .buttons = buttons, .kind = kind };
+    p_tail = (p_tail + 1) % CAP;
+    p_count += 1;
+}
+
+pub fn popPointer() ?Pointer {
+    if (p_count == 0) return null;
+    const e = pq[p_head];
+    p_head = (p_head + 1) % CAP;
+    p_count -= 1;
+    return e;
 }

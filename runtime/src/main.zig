@@ -9,6 +9,8 @@ const cube = @import("cube.zig");
 const fire = @import("fire.zig");
 const input = @import("input.zig");
 const softshell = @import("softshell.zig");
+const gui_mod = @import("gui.zig");
+const osk_mod = @import("osk.zig");
 
 const MAX_WIDTH: u32 = 1920;
 const MAX_HEIGHT: u32 = 1080;
@@ -17,11 +19,13 @@ const BYTES_PER_PIXEL: usize = 4;
 const DISK_ARENA_SIZE: usize = 2 * 1024 * 1024;
 const ALLOC_ARENA_SIZE: usize = 2 * 1024 * 1024;
 
-const BOOT_CLI: u32 = 0;
-const BOOT_GUI: u32 = 1;
+/// SoftUI-owned session after bootloader: 0 = CLI, 1 = GUI.
+const SESSION_CLI: u32 = 0;
+const SESSION_GUI: u32 = 1;
 
 extern fn host_log(ptr: [*]const u8, len: u32) void;
 extern fn host_present() void;
+extern fn host_storage_write(ptr: [*]const u8, len: u32) void;
 
 var framebuffer: [MAX_PIXELS * BYTES_PER_PIXEL]u8 align(8) = undefined;
 var fb_width: u32 = 0;
@@ -30,7 +34,7 @@ var fb_stride: u32 = 0;
 var started: bool = false;
 var frame_count: u64 = 0;
 var boot_ns: u64 = 0;
-var boot_mode: u32 = BOOT_CLI;
+var session_kind: u32 = SESSION_GUI;
 
 var disk_blob: [DISK_ARENA_SIZE]u8 align(8) = undefined;
 var disk_len: usize = 0;
@@ -46,6 +50,8 @@ var fs: softfs.Fs = undefined;
 var fs_ok: bool = false;
 
 var shell: softshell.SoftShell = .{};
+var ui: gui_mod.Gui = .{};
+var osk: osk_mod.Osk = .{};
 
 fn logMsg(msg: []const u8) void {
     if (builtin.cpu.arch == .wasm32) {
@@ -145,7 +151,7 @@ fn shellRefreshKinfo(k: *softshell.KernelInfo) void {
     k.fb_w = fb_width;
     k.fb_h = fb_height;
     k.fb_stride = fb_stride;
-    k.boot_mode = boot_mode;
+    k.boot_mode = session_kind;
     k.alloc_used = @intCast(alloc_used);
     k.alloc_cap = ALLOC_ARENA_SIZE;
     k.disk_len = @intCast(disk_len);
@@ -156,6 +162,25 @@ fn shellRefreshKinfo(k: *softshell.KernelInfo) void {
 fn shellReboot() void {
     input.reset();
     shell.start(fb_width, fb_height, if (fs_ok) &fs else null);
+    shell.gui_hosted = session_kind == SESSION_GUI;
+}
+
+fn persistFs() void {
+    if (!fs_ok) return;
+    const n = fs.pack(disk_blob[0..]) catch {
+        logMsg("softui: softfs pack failed");
+        return;
+    };
+    disk_len = n;
+    disk_mounted = true;
+    if (builtin.cpu.arch == .wasm32) {
+        host_storage_write(&disk_blob, @intCast(n));
+    }
+    logMsg("softui: softfs synced");
+}
+
+fn shellFsSync() void {
+    persistFs();
 }
 
 fn shellRunSox(name: []const u8) void {
@@ -202,8 +227,7 @@ fn mountFsIfNeeded() void {
     logMsg("softui: softfs ready");
 }
 
-fn startCli() void {
-    input.reset();
+fn wireShellCallbacks() void {
     shell.on_donut = shellDonut;
     shell.on_plasma = shellPlasma;
     shell.on_stars = shellStars;
@@ -213,40 +237,155 @@ fn startCli() void {
     shell.on_fb_fill = shellFbFill;
     shell.on_reboot_shell = shellReboot;
     shell.on_refresh_kinfo = shellRefreshKinfo;
+    shell.on_fs_sync = shellFsSync;
+    shell.on_return_desktop = returnToDesktop;
+}
+
+fn returnToDesktop() void {
+    ui.returnToDesktop();
+    shell.content_y = 0;
+    shell.enterMode(.shell);
+    logMsg("softui: desktop");
+}
+
+fn toggleOsk() void {
+    if (osk.visible) {
+        osk.reset();
+    } else {
+        osk.visible = true;
+    }
+}
+
+fn enterCliSession() void {
+    session_kind = SESSION_CLI;
+    wireShellCallbacks();
+    shell.gui_hosted = false;
+    shell.content_y = 0;
+    input.reset();
     shell.start(fb_width, fb_height, if (fs_ok) &fs else null);
-    logMsg("softui: SoftShell CLI boot");
+    logMsg("softui: SoftShell CLI session");
 }
 
-export fn softui_set_boot_mode(mode: u32) void {
-    boot_mode = mode;
+fn enterGuiSession() void {
+    session_kind = SESSION_GUI;
+    wireShellCallbacks();
+    shell.gui_hosted = true;
+    shell.ready = false;
+    shell.content_y = 0;
+    logMsg("softui: GUI desktop session");
 }
 
-export fn softui_push_key(key: u32, mods: u32) void {
-    input.push(key, mods);
+fn launchFromDesktop(launch: gui_mod.Launch) void {
+    wireShellCallbacks();
+    shell.gui_hosted = true;
+    const fs_ptr: ?*softfs.Fs = if (fs_ok) &fs else null;
+    switch (launch) {
+        .shell => {
+            input.reset();
+            shell.content_y = gui_mod.BAR_H;
+            shell.start(fb_width, fb_height, fs_ptr);
+            shell.gui_hosted = true;
+            logMsg("softui: launch SoftShell");
+        },
+        .donut => {
+            ensureShellForDemo(fs_ptr);
+            shell.enterMode(.donut);
+            logMsg("softui: launch donut");
+        },
+        .plasma => {
+            ensureShellForDemo(fs_ptr);
+            shell.enterMode(.plasma);
+            logMsg("softui: launch plasma");
+        },
+        .stars => {
+            ensureShellForDemo(fs_ptr);
+            shell.enterMode(.stars);
+            logMsg("softui: launch stars");
+        },
+        .cube => {
+            ensureShellForDemo(fs_ptr);
+            shell.enterMode(.cube);
+            logMsg("softui: launch cube");
+        },
+        .fire => {
+            ensureShellForDemo(fs_ptr);
+            shell.enterMode(.fire);
+            logMsg("softui: launch fire");
+        },
+    }
 }
 
-export fn softui_start(width: u32, height: u32) i32 {
+fn ensureShellForDemo(fs_ptr: ?*softfs.Fs) void {
+    shell.content_y = 0;
+    if (!shell.ready) {
+        input.reset();
+        shell.start(fb_width, fb_height, fs_ptr);
+    }
+    shell.gui_hosted = true;
+}
+
+fn startBootloader() void {
+    session_kind = SESSION_GUI;
+    ui.on_choose_cli = enterCliSession;
+    ui.on_choose_gui = enterGuiSession;
+    ui.on_launch = launchFromDesktop;
+    ui.on_close_app = returnToDesktop;
+    ui.on_toggle_osk = toggleOsk;
+    ui.start();
+    logMsg("softui: bootloader");
+}
+
+fn applyFbSize(width: u32, height: u32) i32 {
     if (width == 0 or height == 0) return -1;
     if (width > MAX_WIDTH or height > MAX_HEIGHT) return -2;
-
     fb_width = width;
     fb_height = height;
     fb_stride = width * @as(u32, BYTES_PER_PIXEL);
+    @memset(framebuffer[0 .. @as(usize, fb_stride) * @as(usize, fb_height)], 0);
+    if (shell.ready) {
+        shell.resizeFb(fb_width, fb_height);
+    }
+    return 0;
+}
+
+export fn softui_push_key(key: u32, mods: u32) void {
+    if (osk.handleHotkey(key, mods)) return;
+    input.push(key, mods);
+}
+
+/// Pointer into SoftUI FB coords. kind: 0=move 1=down 2=up. buttons bit0=primary.
+export fn softui_push_pointer(x: u32, y: u32, buttons: u32, kind: u32) void {
+    if (osk.handlePointer(x, y, buttons, kind, fb_width, fb_height)) return;
+    input.pushPointer(x, y, buttons, kind);
+}
+
+export fn softui_start(width: u32, height: u32) i32 {
+    const rc = applyFbSize(width, height);
+    if (rc != 0) return rc;
+
     frame_count = 0;
     boot_ns = 0;
     started = true;
     vm_ready = false;
     fs_ok = false;
     alloc_used = 0;
+    shell.ready = false;
+    shell.content_y = 0;
+    osk.reset();
 
-    @memset(framebuffer[0 .. @as(usize, fb_stride) * @as(usize, fb_height)], 0);
     logMsg("softui: kernel start");
     mountFsIfNeeded();
+    startBootloader();
+    return 0;
+}
 
-    if (boot_mode == BOOT_GUI) {
-        logMsg("softui: gui boot not implemented; using CLI");
-    }
-    startCli();
+/// Change framebuffer geometry to match host viewport. Keeps session/stage.
+export fn softui_resize(width: u32, height: u32) i32 {
+    if (!started) return -1;
+    if (width == fb_width and height == fb_height) return 0;
+    const rc = applyFbSize(width, height);
+    if (rc != 0) return rc;
+    logMsg("softui: fb resize");
     return 0;
 }
 
@@ -260,8 +399,32 @@ export fn softui_tick(now_ns: u64) i32 {
         shell.fs = &fs;
     }
 
-    shell.tick(@truncate(frame_count));
-    shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
+    if (session_kind == SESSION_CLI) {
+        shell.tick(@truncate(frame_count));
+        shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
+    } else {
+        ui.tick(now_ns, fb_width, fb_height);
+        if (ui.stage == .app) {
+            shell.tick(@truncate(frame_count));
+        } else if (ui.stage == .cli) {
+            shell.tick(@truncate(frame_count));
+        }
+        switch (ui.stage) {
+            .bootloader, .desktop => {
+                ui.draw(fbBytes(), fb_width, fb_height, fb_stride, now_ns);
+            },
+            .app => {
+                shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
+                ui.drawAppChrome(fbBytes(), fb_width, fb_height, fb_stride);
+            },
+            .cli => {
+                shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
+            },
+        }
+    }
+
+    // Overlay last so the keyboard sits above bootloader / desktop / shell.
+    osk.draw(fbBytes(), fb_width, fb_height, fb_stride);
 
     if (builtin.cpu.arch == .wasm32) {
         host_present();
@@ -303,6 +466,13 @@ export fn softui_mount_disk(ptr: u32, len: u32) i32 {
     vm_ready = false;
     logMsg("softui: disk mounted");
     if (started) mountFsIfNeeded();
+    return 0;
+}
+
+/// Pack SoftFS and push to host storage. Returns 0 on success.
+export fn softui_persist() i32 {
+    if (!fs_ok) return -1;
+    persistFs();
     return 0;
 }
 

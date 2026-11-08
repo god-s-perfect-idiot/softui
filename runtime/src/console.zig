@@ -2,20 +2,23 @@
 
 const font = @import("font.zig");
 
-pub const FG: u32 = 0xFFD7E0EA;
-pub const BG: u32 = 0xFF0B0E12;
-pub const CURSOR: u32 = 0xFF50B4FF;
-pub const DIM: u32 = 0xFF7A8796;
+pub const DEFAULT_FG: u32 = 0xFFD7E0EA;
+pub const DEFAULT_BG: u32 = 0xFF0B0E12;
+pub const DEFAULT_CURSOR: u32 = 0xFF50B4FF;
+pub const DEFAULT_DIM: u32 = 0xFF7A8796;
 
 const MAX_COLS: usize = 240;
 const MAX_ROWS: usize = 120;
 const LINE_CAP: usize = 256;
+/// Row pitch in pixels (glyph is 8px; extra space is leading/padding).
+const LINE_HEIGHT: u32 = 16;
+const GLYPH_Y_PAD: u32 = (LINE_HEIGHT - font.GLYPH_H) / 2;
 
 pub const Console = struct {
     cols: u32 = 0,
     rows: u32 = 0,
     cell_w: u32 = font.GLYPH_W,
-    cell_h: u32 = font.GLYPH_H,
+    cell_h: u32 = LINE_HEIGHT,
     /// Scrollback lines as fixed buffers (row-major chars, space-padded).
     lines: [MAX_ROWS][MAX_COLS]u8 = undefined,
     line_lens: [MAX_ROWS]u16 = @splat(0),
@@ -24,15 +27,38 @@ pub const Console = struct {
     dirty: bool = true,
     cursor_on: bool = true,
     blink_div: u32 = 0,
+    fg: u32 = DEFAULT_FG,
+    bg: u32 = DEFAULT_BG,
+    cursor_color: u32 = DEFAULT_CURSOR,
 
     pub fn init(self: *Console, fb_w: u32, fb_h: u32) void {
         self.cell_w = font.GLYPH_W;
-        self.cell_h = font.GLYPH_H;
+        self.cell_h = LINE_HEIGHT;
         self.cols = @min(fb_w / self.cell_w, @as(u32, MAX_COLS));
         self.rows = @min(fb_h / self.cell_h, @as(u32, MAX_ROWS));
         self.used = 0;
         self.dirty = true;
+        if (self.fg == 0) self.fg = DEFAULT_FG;
+        if (self.bg == 0) self.bg = DEFAULT_BG;
+        if (self.cursor_color == 0) self.cursor_color = DEFAULT_CURSOR;
         self.clear();
+    }
+
+    pub fn setFg(self: *Console, color: u32) void {
+        self.fg = color | 0xFF000000;
+        self.dirty = true;
+    }
+
+    pub fn setBg(self: *Console, color: u32) void {
+        self.bg = color | 0xFF000000;
+        self.dirty = true;
+    }
+
+    pub fn resetColors(self: *Console) void {
+        self.fg = DEFAULT_FG;
+        self.bg = DEFAULT_BG;
+        self.cursor_color = DEFAULT_CURSOR;
+        self.dirty = true;
     }
 
     pub fn clear(self: *Console) void {
@@ -137,14 +163,15 @@ pub const Console = struct {
         height: u32,
         stride: u32,
         show_cursor: bool,
+        origin_y: u32,
     ) void {
         _ = height;
-        // Full clear background.
+        // Clear console band (may sit below SoftUI app chrome).
         var y: u32 = 0;
         while (y < self.rows * self.cell_h) : (y += 1) {
             var x: u32 = 0;
             while (x < self.cols * self.cell_w) : (x += 1) {
-                put(fb, stride, width, x, y, BG);
+                put(fb, stride, width, x, origin_y + y, self.bg);
             }
         }
 
@@ -154,7 +181,15 @@ pub const Console = struct {
             var col: u32 = 0;
             while (col < len and col < self.cols) : (col += 1) {
                 const ch = self.lines[row][col];
-                drawGlyph(fb, stride, width, col * self.cell_w, row * self.cell_h, ch, FG);
+                drawGlyph(
+                    fb,
+                    stride,
+                    width,
+                    col * self.cell_w,
+                    origin_y + row * self.cell_h + GLYPH_Y_PAD,
+                    ch,
+                    self.fg,
+                );
             }
         }
 
@@ -163,12 +198,12 @@ pub const Console = struct {
             const c = self.line_lens[r];
             if (c < self.cols) {
                 const x0 = c * self.cell_w;
-                const y0 = r * self.cell_h;
+                const y0 = origin_y + r * self.cell_h + GLYPH_Y_PAD;
                 var yy: u32 = 0;
-                while (yy < self.cell_h) : (yy += 1) {
+                while (yy < font.GLYPH_H) : (yy += 1) {
                     var xx: u32 = 0;
                     while (xx < 2) : (xx += 1) {
-                        put(fb, stride, width, x0 + xx, y0 + yy, CURSOR);
+                        put(fb, stride, width, x0 + xx, y0 + yy, self.cursor_color);
                     }
                 }
             }

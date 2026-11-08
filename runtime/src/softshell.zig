@@ -4,8 +4,9 @@ const std = @import("std");
 const console_mod = @import("console.zig");
 const input = @import("input.zig");
 const softfs = @import("softfs.zig");
+const txedit_mod = @import("txedit.zig");
 
-pub const Mode = enum { shell, donut, plasma, stars, cube, fire };
+pub const Mode = enum { shell, donut, plasma, stars, cube, fire, txedit };
 
 pub const KernelInfo = struct {
     frame: u32 = 0,
@@ -41,9 +42,18 @@ pub const SoftShell = struct {
     on_fb_fill: ?*const fn (x: u32, y: u32, w: u32, h: u32, color: u32) void = null,
     on_reboot_shell: ?*const fn () void = null,
     on_refresh_kinfo: ?*const fn (*KernelInfo) void = null,
+    /// Persist SoftFS to host storage (auto after mutations + `sync`).
+    on_fs_sync: ?*const fn () void = null,
+    /// When true, leaving demos / Esc-empty shell returns to SoftUI desktop.
+    gui_hosted: bool = false,
+    /// Vertical inset for console when SoftUI app chrome occupies the top bar.
+    content_y: u32 = 0,
+    on_return_desktop: ?*const fn () void = null,
+    editor: txedit_mod.TxEdit = .{},
 
     pub fn start(self: *SoftShell, fb_w: u32, fb_h: u32, fs: ?*softfs.Fs) void {
-        self.cons.init(fb_w, fb_h);
+        const cons_h = if (fb_h > self.content_y) fb_h - self.content_y else fb_h;
+        self.cons.init(fb_w, cons_h);
         self.fs = fs;
         self.kinfo.fb_w = fb_w;
         self.kinfo.fb_h = fb_h;
@@ -53,6 +63,32 @@ pub const SoftShell = struct {
         self.cons.write("SoftUI kernel - SoftShell CLI\n");
         self.cons.write("Type 'help' or 'help fs' / 'help kernel'.\n\n");
         self.updatePrompt();
+        self.refreshInput();
+    }
+
+    /// Recompute console geometry after a framebuffer resize (keeps mode/session).
+    pub fn resizeFb(self: *SoftShell, fb_w: u32, fb_h: u32) void {
+        self.kinfo.fb_w = fb_w;
+        self.kinfo.fb_h = fb_h;
+        if (!self.ready) return;
+        const cons_h = if (fb_h > self.content_y) fb_h - self.content_y else fb_h;
+        self.cons.init(fb_w, cons_h);
+        self.updatePrompt();
+        self.refreshInput();
+    }
+
+    pub fn enterMode(self: *SoftShell, mode: Mode) void {
+        self.mode = mode;
+        self.line_len = 0;
+    }
+
+    fn returnFromApp(self: *SoftShell) void {
+        if (self.gui_hosted) {
+            if (self.on_return_desktop) |cb| cb();
+            return;
+        }
+        self.mode = .shell;
+        self.cons.write("\n(back to SoftShell)\n");
         self.refreshInput();
     }
 
@@ -91,12 +127,14 @@ pub const SoftShell = struct {
         self.kinfo.frame = frame;
         while (input.pop()) |ev| self.handleKey(ev);
         if (self.mode == .shell) self.cons.tickBlink();
+        if (self.mode == .txedit) self.editor.tickBlink();
     }
 
     pub fn draw(self: *SoftShell, fb: []u8, width: u32, height: u32, stride: u32) void {
         if (!self.ready) return;
         switch (self.mode) {
-            .shell => self.cons.draw(fb, width, height, stride, true),
+            .shell => self.cons.draw(fb, width, height, stride, true, self.content_y),
+            .txedit => self.editor.draw(fb, width, height, stride),
             .donut => if (self.on_donut) |d| d(self.frame *% 7, self.frame *% 5),
             .plasma => if (self.on_plasma) |d| d(self.frame),
             .stars => if (self.on_stars) |d| d(self.frame),
@@ -106,10 +144,23 @@ pub const SoftShell = struct {
     }
 
     fn handleKey(self: *SoftShell, ev: input.Event) void {
+        if (self.mode == .txedit) {
+            const fs = self.fs orelse {
+                self.mode = .shell;
+                return;
+            };
+            const act = self.editor.handleKey(fs, ev);
+            if (act == .saved) self.persistFs();
+            if (act == .quit) {
+                self.mode = .shell;
+                self.cons.write("txedit: closed\n");
+                self.updatePrompt();
+                self.refreshInput();
+            }
+            return;
+        }
         if (self.mode != .shell) {
-            self.mode = .shell;
-            self.cons.write("\n(back to SoftShell)\n");
-            self.refreshInput();
+            self.returnFromApp();
             return;
         }
         const key = ev.key;
@@ -129,6 +180,10 @@ pub const SoftShell = struct {
             return;
         }
         if (key == input.KEY_ESCAPE) {
+            if (self.gui_hosted and self.line_len == 0) {
+                if (self.on_return_desktop) |cb| cb();
+                return;
+            }
             self.line_len = 0;
             self.refreshInput();
             return;
@@ -217,9 +272,15 @@ pub const SoftShell = struct {
             return self.cmdWrite(argv[1], argv[2..argc], true);
         }
         if (eql(cmd, "df")) return self.cmdDf();
+        if (eql(cmd, "sync")) return self.cmdSync();
         if (eql(cmd, "wc")) {
             if (argc < 2) return self.err("usage: wc <path>");
             return self.cmdWc(argv[1]);
+        }
+        if (eql(cmd, "color")) return self.cmdColor(argv[1..argc]);
+        if (eql(cmd, "txedit") or eql(cmd, "nano") or eql(cmd, "edit")) {
+            if (argc < 2) return self.err("usage: txedit <path>");
+            return self.cmdTxedit(argv[1]);
         }
 
         if (eql(cmd, "donut")) {
@@ -280,30 +341,53 @@ pub const SoftShell = struct {
             self.cons.write("Filesystem:\n");
             self.cons.write("  pwd cd ls tree cat hexdump|hd stat wc df\n");
             self.cons.write("  touch mkdir rm rmdir mv cp\n");
-            self.cons.write("  write|printf <path> <text...>  append ...\n");
+            self.cons.write("  write|printf  append  txedit <path>\n");
+            self.cons.write("  sync                 persist SoftFS to host\n");
             self.cons.write("  Chain: mkdir a; cd a; touch f\n");
             return;
         }
         if (eql(topic, "kernel") or eql(topic, "k")) {
             self.cons.write("Kernel surface:\n");
             self.cons.write("  kinfo|sysinfo mem ticks svc reboot caps\n");
+            self.cons.write("  color [#hex|fg|bg|reset]\n");
             self.cons.write("  fb clear <color> | fb fill x y w h color\n");
             self.cons.write("  demos: donut plasma stars cube fire\n");
             self.cons.write("  run <file.sox>\n");
             return;
         }
-        self.cons.write("SoftShell - help [fs|kernel|capabilities]\n");
-        self.cons.write("  fs: pwd cd ls tree cat touch mkdir rm mv cp write df\n");
+        if (eql(topic, "apps") or eql(topic, "edit")) {
+            self.cons.write("Apps:\n");
+            self.cons.write("  color #RRGGBB       set CLI text color\n");
+            self.cons.write("  color bg #RRGGBB    set CLI background\n");
+            self.cons.write("  color reset         defaults\n");
+            self.cons.write("  txedit <path>       nano-like editor\n");
+            self.cons.write("    ^O/^S save   ^X exit   arrows move\n");
+            return;
+        }
+        self.cons.write("SoftShell - help [fs|kernel|apps|capabilities]\n");
+        self.cons.write("  fs: pwd cd ls tree cat touch mkdir rm mv cp write sync\n");
+        self.cons.write("  apps: color  txedit|nano|edit <path>\n");
         self.cons.write("  k:  kinfo mem ticks svc fb reboot run caps\n");
         self.cons.write("  demos: donut plasma stars cube fire\n");
     }
 
     fn cmdCaps(self: *SoftShell) void {
         self.cons.write("Full catalog: docs/softshell.md\n");
-        self.cons.write("Shipped: SoftFS CRUD+dirs, fb poke, kinfo/mem,\n");
-        self.cons.write("  demos, SoftASM run, ';' chaining.\n");
-        self.cons.write("Planned: scripts/vars/pipes, disk sync, net,\n");
-        self.cons.write("  sched/proc, SoftASM debug, peek/poke.\n");
+        self.cons.write("Shipped: SoftFS CRUD+dirs+sync, color, txedit,\n");
+        self.cons.write("  fb poke, kinfo/mem, demos, SoftASM run.\n");
+        self.cons.write("Planned: scripts/vars/pipes, net, sched/proc,\n");
+        self.cons.write("  SoftASM debug, peek/poke.\n");
+    }
+
+    fn persistFs(self: *SoftShell) void {
+        if (self.on_fs_sync) |s| s();
+    }
+
+    fn cmdSync(self: *SoftShell) void {
+        _ = self.requireFs() orelse return;
+        if (self.on_fs_sync == null) return self.err("sync not wired");
+        self.persistFs();
+        self.cons.write("synced\n");
     }
 
     fn cmdEcho(self: *SoftShell, args: []const []const u8) void {
@@ -457,6 +541,7 @@ pub const SoftShell = struct {
         }
         const pp = fs.resolveParent(path) orelse return self.err("bad path");
         _ = fs.createFile(pp.parent, pp.name, &.{}) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdMkdir(self: *SoftShell, path: []const u8) void {
@@ -464,6 +549,7 @@ pub const SoftShell = struct {
         if (fs.resolve(path) != null) return self.err("exists");
         const pp = fs.resolveParent(path) orelse return self.err("bad path");
         _ = fs.mkdir(pp.parent, pp.name) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdRm(self: *SoftShell, path: []const u8) void {
@@ -471,6 +557,7 @@ pub const SoftShell = struct {
         const idx = fs.resolve(path) orelse return self.err("not found");
         if (fs.nodes[idx].kind == .dir) return self.err("is directory (use rmdir)");
         fs.unlink(idx) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdRmdir(self: *SoftShell, path: []const u8) void {
@@ -478,6 +565,7 @@ pub const SoftShell = struct {
         const idx = fs.resolve(path) orelse return self.err("not found");
         if (fs.nodes[idx].kind != .dir) return self.err("not a directory");
         fs.unlink(idx) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdMv(self: *SoftShell, src: []const u8, dst: []const u8) void {
@@ -486,6 +574,7 @@ pub const SoftShell = struct {
         if (fs.resolve(dst) != null) return self.err("dst exists");
         const pp = fs.resolveParent(dst) orelse return self.err("bad dst");
         fs.rename(sidx, pp.parent, pp.name) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdCp(self: *SoftShell, src: []const u8, dst: []const u8) void {
@@ -495,6 +584,7 @@ pub const SoftShell = struct {
         if (fs.resolve(dst) != null) return self.err("dst exists");
         const pp = fs.resolveParent(dst) orelse return self.err("bad dst");
         _ = fs.copyFile(sidx, pp.parent, pp.name) catch |e| return self.fsErr(e);
+        self.persistFs();
     }
 
     fn cmdWrite(self: *SoftShell, path: []const u8, words: []const []const u8, append: bool) void {
@@ -525,6 +615,7 @@ pub const SoftShell = struct {
             const idx = fs.createFile(pp.parent, pp.name, &.{}) catch |e| return self.fsErr(e);
             fs.writeFile(idx, text, false) catch |e| return self.fsErr(e);
         }
+        self.persistFs();
     }
 
     fn cmdDf(self: *SoftShell) void {
@@ -539,6 +630,43 @@ pub const SoftShell = struct {
         self.cons.write("/");
         self.writeU32(d.heap_max);
         self.cons.write("\n");
+    }
+
+    fn cmdColor(self: *SoftShell, args: []const []const u8) void {
+        if (args.len == 0) {
+            self.cons.write("usage: color #RRGGBB | color fg|bg #hex | color reset\n");
+            return;
+        }
+        if (eql(args[0], "reset")) {
+            self.cons.resetColors();
+            self.cons.write("colors reset\n");
+            return;
+        }
+        if (eql(args[0], "fg") or eql(args[0], "bg")) {
+            if (args.len < 2) return self.err("usage: color fg|bg #hex");
+            const c = parseColor(args[1]) orelse return self.err("bad color");
+            if (eql(args[0], "fg")) {
+                self.cons.setFg(c);
+                self.cons.cursor_color = c | 0xFF000000;
+            } else {
+                self.cons.setBg(c);
+            }
+            self.cons.write("ok\n");
+            return;
+        }
+        const c = parseColor(args[0]) orelse return self.err("bad color (try #50b4ff)");
+        self.cons.setFg(c);
+        self.cons.cursor_color = c | 0xFF000000;
+        self.cons.write("fg set\n");
+    }
+
+    fn cmdTxedit(self: *SoftShell, path: []const u8) void {
+        const fs = self.requireFs() orelse return;
+        if (!self.editor.open(fs, path, self.kinfo.fb_w, self.kinfo.fb_h, self.cons.fg, self.cons.bg)) {
+            self.err("txedit: cannot open (path/name?)");
+            return;
+        }
+        self.mode = .txedit;
     }
 
     fn cmdWc(self: *SoftShell, path: []const u8) void {
@@ -573,7 +701,7 @@ pub const SoftShell = struct {
         self.cons.write("SoftUI kernel\n");
         self.cons.write("frame ");
         self.writeU32(self.kinfo.frame);
-        self.cons.write(" boot_mode ");
+        self.cons.write(" session ");
         self.writeU32(self.kinfo.boot_mode);
         self.cons.write("\nfb ");
         self.writeU32(self.kinfo.fb_w);
@@ -698,4 +826,36 @@ fn tokenize(line: []const u8, out: [][]const u8) usize {
 
 fn parseU32(s: []const u8) ?u32 {
     return std.fmt.parseInt(u32, s, 0) catch null;
+}
+
+/// Parse #RGB, #RRGGBB, #AARRGGBB, 0x..., or bare hex into 0xAARRGGBB.
+fn parseColor(raw: []const u8) ?u32 {
+    var s = raw;
+    if (s.len > 0 and s[0] == '#') s = s[1..];
+    if (std.mem.startsWith(u8, s, "0x") or std.mem.startsWith(u8, s, "0X")) s = s[2..];
+    if (s.len == 3) {
+        // #RGB -> #FFRRGGBB expanded
+        const r = hexNibble(s[0]) orelse return null;
+        const g = hexNibble(s[1]) orelse return null;
+        const b = hexNibble(s[2]) orelse return null;
+        const R: u32 = (r << 4) | r;
+        const G: u32 = (g << 4) | g;
+        const B: u32 = (b << 4) | b;
+        return 0xFF000000 | (R << 16) | (G << 8) | B;
+    }
+    if (s.len == 6) {
+        const rgb = std.fmt.parseInt(u32, s, 16) catch return null;
+        return 0xFF000000 | rgb;
+    }
+    if (s.len == 8) {
+        return std.fmt.parseInt(u32, s, 16) catch null;
+    }
+    return null;
+}
+
+fn hexNibble(c: u8) ?u32 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
+    return null;
 }

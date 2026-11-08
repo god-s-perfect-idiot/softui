@@ -1,6 +1,6 @@
 # SoftUI
 
-Portable guest OS. Zig kernel/runtime compiles to WASM; a tiny Web bootstrap implements Host ABI and blits SoftUI's framebuffer to a canvas. Default boot is the **SoftShell CLI** (SoftUI-rendered text — no host UI).
+Portable guest OS. Zig kernel/runtime compiles to WASM; a tiny Web bootstrap implements Host ABI and blits SoftUI's framebuffer to a canvas. Boot opens a SoftUI **bootloader** (GUI default, or SoftShell CLI); all pixels are SoftUI-drawn — no host UI.
 
 ## Quick start
 
@@ -19,10 +19,19 @@ zig build sysroot   # init.sox + init.sofs only
 
 - `runtime/` — Zig kernel, SoftASM VM, SoftFS, framebuffer
 - `softasm/` — ISA + assembler (`softasm` → `.sox`)
-- `sysroot/init.soft` — SoftASM source for boot `init.sox`
+- `sysroot/` — SoftASM demo sources (`.soft`)
 - `bootstrap/web/` — Host ABI JS + canvas + `init.sofs`
 - `tools/` — `serve.zig`, `pack_sofs.zig`
 - `host-abi/` — C ABI header
-- `docs/` — architecture, Host ABI, SoftASM ISA, SoftFS
+- `docs/` — [OS guides + reference](docs/README.md)
 
-SoftUI never calls browser/OS APIs except through Host ABI. Userspace binaries are **`.sox`**.
+SoftUI never calls browser/OS APIs except through Host ABI. Userspace binaries are **`.sox`**. SoftFS edits persist via Host ABI (`localStorage` on Web) — see [docs/guides/persistence.md](docs/guides/persistence.md).
+
+## Documentation
+
+| Start | Link |
+|-------|------|
+| Docs index | [docs/README.md](docs/README.md) |
+| OS overview | [docs/guides/overview.md](docs/guides/overview.md) |
+| Filesystem persistence | [docs/guides/persistence.md](docs/guides/persistence.md) |
+| SoftShell caps | [docs/softshell.md](docs/softshell.md) |

@@ -2,6 +2,8 @@
 
 SoftASM is SoftUI's portable userspace bytecode. SoftUI interprets it; apps never execute host CPU instructions or host syscalls.
 
+**Guide:** [guides/softasm-guide.md](guides/softasm-guide.md). SoftFS image layouts below pair with [guides/persistence.md](guides/persistence.md).
+
 ## Machine model
 
 - 32 GPRs `r0`–`r31` (32-bit)
@@ -88,14 +90,26 @@ Process image layout after load: `[code][rodata][bss…]` with stack at the high
 
 ## Artifact: `.sofs`
 
-SoftUI filesystem image:
+SoftUI filesystem image.
+
+### v1 (flat, factory `init.sofs`)
 
 | Field | Meaning |
 |-------|---------|
 | magic `SOFS` | |
 | version `u16` (=1) | |
 | file_count `u16` | |
-| entries[file_count] | name[32], offset `u32`, size `u32` |
+| entries[file_count] | name[32], offset `u32`, size `u32` (40 bytes) |
 | data… | file payloads; offset is from start of data region |
 
-Boot looks up `init.sox` in the mounted SoftFS image.
+### v2 (tree, packed by SoftFS `pack`)
+
+| Field | Meaning |
+|-------|---------|
+| magic `SOFS` | |
+| version `u16` (=2) | |
+| node_count `u16` | |
+| entries[node_count] | name[32], parent `u16` (`0xFFFF` = root), kind `u8` (0=file,1=dir), pad `u8`, offset `u32`, size `u32` (44 bytes) |
+| data… | file payloads; offset is from start of data region |
+
+Entries are BFS-ordered so parents appear before children.
