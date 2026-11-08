@@ -1,0 +1,21 @@
+; SoftASM starfield demo — SoftShell can `run stars.sox`.
+; SoftASM owns the frame loop; svc 15 (fb_stars) renders one frame.
+
+.text
+.entry start
+
+start:
+    li r0, 1
+    li r1, msg
+    li r2, 28
+    svc 1
+
+loop:
+    svc 12
+    svc 15
+    svc 3
+    b loop
+
+.rodata
+msg:
+    .ascii "softasm: 3d starfield demo    "

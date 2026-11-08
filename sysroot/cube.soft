@@ -1,0 +1,21 @@
+; SoftASM cube demo — SoftShell can `run cube.sox`.
+; SoftASM owns the frame loop; svc 16 (fb_cube) renders one frame.
+
+.text
+.entry start
+
+start:
+    li r0, 1
+    li r1, msg
+    li r2, 28
+    svc 1
+
+loop:
+    svc 12
+    svc 16
+    svc 3
+    b loop
+
+.rodata
+msg:
+    .ascii "softasm: rotating cube demo   "

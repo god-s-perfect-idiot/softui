@@ -1,0 +1,27 @@
+; SoftASM donut demo binary — SoftShell can `run donut.sox`.
+; SoftASM owns the frame loop; svc 13 (fb_donut) renders one torus frame.
+
+.text
+.entry start
+
+start:
+    li r0, 1
+    li r1, msg
+    li r2, 28
+    svc 1
+
+loop:
+    svc 12
+    li r8, 7
+    mul r1, r0, r8
+    mov r10, r1
+    li r8, 5
+    mul r1, r0, r8
+    mov r0, r10
+    svc 13
+    svc 3
+    b loop
+
+.rodata
+msg:
+    .ascii "softasm: spinning donut demo"

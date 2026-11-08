@@ -1,0 +1,21 @@
+; SoftASM fire demo — SoftShell can `run fire.sox`.
+; SoftASM owns the frame loop; svc 17 (fb_fire) renders one frame.
+
+.text
+.entry start
+
+start:
+    li r0, 1
+    li r1, msg
+    li r2, 28
+    svc 1
+
+loop:
+    svc 12
+    svc 17
+    svc 3
+    b loop
+
+.rodata
+msg:
+    .ascii "softasm: doom-style fire demo "

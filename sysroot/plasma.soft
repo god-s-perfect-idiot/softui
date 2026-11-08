@@ -1,0 +1,21 @@
+; SoftASM plasma demo — SoftShell can `run plasma.sox`.
+; SoftASM owns the frame loop; svc 14 (fb_plasma) renders one frame.
+
+.text
+.entry start
+
+start:
+    li r0, 1
+    li r1, msg
+    li r2, 29
+    svc 1
+
+loop:
+    svc 12
+    svc 14
+    svc 3
+    b loop
+
+.rodata
+msg:
+    .ascii "softasm: plasma color-field demo"
