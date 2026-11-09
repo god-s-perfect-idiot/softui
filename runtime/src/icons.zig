@@ -8,9 +8,10 @@ pub const MAX_ICONS: usize = 24;
 const ICON_RGBA: usize = ICON_SIZE * ICON_SIZE * 4;
 const MAX_SRC: usize = 96 * 1024;
 
-const WP_MAX_W: u32 = 160;
-const WP_MAX_H: u32 = 100;
+const WP_MAX_W: u32 = 1280;
+const WP_MAX_H: u32 = 720;
 const WP_RGBA: usize = WP_MAX_W * WP_MAX_H * 4;
+const WP_MAX_SRC: usize = 256 * 1024;
 
 const Slot = struct {
     rgba: []u8,
@@ -28,6 +29,7 @@ var slots: [MAX_ICONS]Slot = undefined;
 var slots_init: bool = false;
 
 var wp_rgba: [WP_RGBA]u8 = undefined;
+var wp_src_buf: [WP_MAX_SRC]u8 = undefined;
 var wallpaper: Slot = undefined;
 var wp_init: bool = false;
 
@@ -47,6 +49,8 @@ fn ensureInit() void {
             .rgba = wp_rgba[0..],
             .cap = WP_RGBA,
         };
+        // Larger pending source buffer for JPEG/PNG wallpapers.
+        @memset(wp_src_buf[0..], 0);
         wp_init = true;
     }
 }
@@ -125,7 +129,43 @@ pub fn loadSlot(index: usize, data: []const u8) void {
 
 pub fn loadWallpaper(data: []const u8) void {
     ensureInit();
-    loadInto(&wallpaper, data);
+    // Prefer the dedicated wallpaper source buffer (JPEG/PNG can exceed icon src).
+    wallpaper.ready = false;
+    wallpaper.pending = false;
+    wallpaper.w = 0;
+    wallpaper.h = 0;
+    wallpaper.src_len = 0;
+
+    if (data.len >= 12 and data[0] == 'S' and data[1] == 'I' and data[2] == 'M' and data[3] == 'G') {
+        loadInto(&wallpaper, data);
+        return;
+    }
+
+    const n = @min(data.len, wp_src_buf.len);
+    @memcpy(wp_src_buf[0..n], data[0..n]);
+    wallpaper.pending = true;
+    // Temporarily point decode through a one-shot host path.
+    retryWallpaperHost(wp_src_buf[0..n]);
+}
+
+fn retryWallpaperHost(src: []const u8) void {
+    var ow: u32 = 0;
+    var oh: u32 = 0;
+    if (hostapi.imageDecode(src, wallpaper.rgba[0..wallpaper.cap], &ow, &oh)) {
+        const need = @as(usize, ow) * @as(usize, oh) * 4;
+        if (need > wallpaper.cap or ow == 0 or oh == 0) {
+            wallpaper.pending = false;
+            return;
+        }
+        wallpaper.w = ow;
+        wallpaper.h = oh;
+        wallpaper.ready = true;
+        wallpaper.pending = false;
+        wallpaper.src_len = src.len;
+        return;
+    }
+    // Keep pending; tickPending will retry via stashed wp_src_buf.
+    wallpaper.src_len = src.len;
 }
 
 pub fn tickPending() void {
@@ -133,7 +173,9 @@ pub fn tickPending() void {
     for (&slots) |*s| {
         if (s.pending) retryHost(s);
     }
-    if (wallpaper.pending) retryHost(&wallpaper);
+    if (wallpaper.pending and wallpaper.src_len > 0) {
+        retryWallpaperHost(wp_src_buf[0..wallpaper.src_len]);
+    }
 }
 
 pub fn blit(
@@ -154,10 +196,20 @@ pub fn blit(
     blitScaled(fb, stride, fb_w, fb_h, dx, dy, dw, dh, s.rgba, s.w, s.h);
 }
 
+/// Draw wallpaper with object-fit: cover (no stretch). Crop centered to fill dest.
 pub fn blitWallpaper(fb: []u8, stride: u32, fb_w: u32, fb_h: u32, dx: u32, dy: u32, dw: u32, dh: u32) void {
     ensureInit();
     if (!wallpaper.ready or wallpaper.w == 0 or wallpaper.h == 0 or dw == 0 or dh == 0) return;
-    blitScaled(fb, stride, fb_w, fb_h, dx, dy, dw, dh, wallpaper.rgba, wallpaper.w, wallpaper.h);
+
+    const sw = wallpaper.w;
+    const sh = wallpaper.h;
+    // Cover: scale = max(dw/sw, dh/sh), then crop the overflow from center.
+    const cover_w = (dw * sh >= dh * sw);
+    const src_w: u32 = if (cover_w) sw else @intCast((@as(u64, dw) * sh) / dh);
+    const src_h: u32 = if (cover_w) @intCast((@as(u64, dh) * sw) / dw) else sh;
+    const sx0 = (sw -| src_w) / 2;
+    const sy0 = (sh -| src_h) / 2;
+    blitScaledCrop(fb, stride, fb_w, fb_h, dx, dy, dw, dh, wallpaper.rgba, sw, sh, sx0, sy0, src_w, src_h);
 }
 
 pub fn wallpaperReady() bool {
@@ -183,16 +235,39 @@ fn blitScaled(
     sw: u32,
     sh: u32,
 ) void {
+    blitScaledCrop(fb, stride, fb_w, fb_h, dx, dy, dw, dh, src, sw, sh, 0, 0, sw, sh);
+}
+
+fn blitScaledCrop(
+    fb: []u8,
+    stride: u32,
+    fb_w: u32,
+    fb_h: u32,
+    dx: u32,
+    dy: u32,
+    dw: u32,
+    dh: u32,
+    src: []const u8,
+    sw: u32,
+    sh: u32,
+    sx0: u32,
+    sy0: u32,
+    src_w: u32,
+    src_h: u32,
+) void {
+    _ = sh;
+    if (src_w == 0 or src_h == 0) return;
     var y: u32 = 0;
     while (y < dh) : (y += 1) {
-        const sy = (y * sh) / dh;
+        const sy = sy0 + (y * src_h) / dh;
         const fy = dy +% y;
         if (fy >= fb_h) break;
         var x: u32 = 0;
         while (x < dw) : (x += 1) {
-            const sx = (x * sw) / dw;
+            const sx = sx0 + (x * src_w) / dw;
             const fx = dx +% x;
             if (fx >= fb_w) break;
+            if (sx >= sw) continue;
             const so: usize = (@as(usize, sy) * @as(usize, sw) + @as(usize, sx)) * 4;
             if (so + 3 >= src.len) continue;
             const sr = src[so + 0];

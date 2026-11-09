@@ -1,5 +1,5 @@
-//! Emit SoftUI desktop SVG sources (icons + wallpaper) under sysroot/.
-//! Icons are skeuomorphic 64×64 plates; wallpaper is a soft scenic gradient plate.
+//! Emit SoftUI desktop SVG icon sources under sysroot/icons/.
+//! Icons are skeuomorphic 64×64 plates. Wallpaper is a separate JPEG/PNG asset.
 const std = @import("std");
 
 const Icon = struct { name: []const u8, face_top: []const u8, face_bot: []const u8, glyph: []const u8 };
@@ -157,34 +157,6 @@ fn writeIcon(gpa: std.mem.Allocator, io: std.Io, cwd: std.Io.Dir, icon: Icon) !v
     try cwd.writeFile(io, .{ .sub_path = path, .data = data });
 }
 
-fn writeWallpaper(io: std.Io, cwd: std.Io.Dir) !void {
-    const svg =
-        \\<?xml version="1.0" encoding="UTF-8"?>
-        \\<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100" viewBox="0 0 160 100">
-        \\  <defs>
-        \\    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-        \\      <stop offset="0" stop-color="#1A2A48"/>
-        \\      <stop offset="0.55" stop-color="#3A5080"/>
-        \\      <stop offset="1" stop-color="#8AA0B8"/>
-        \\    </linearGradient>
-        \\    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
-        \\      <stop offset="0" stop-color="#3A5A48"/>
-        \\      <stop offset="1" stop-color="#1A2A24"/>
-        \\    </linearGradient>
-        \\  </defs>
-        \\  <rect width="160" height="100" fill="url(#sky)"/>
-        \\  <circle cx="125" cy="24" r="14" fill="#E8D090" opacity="0.9"/>
-        \\  <circle cx="125" cy="24" r="17" fill="#E8D090" opacity="0.2"/>
-        \\  <ellipse cx="30" cy="35" rx="20" ry="6" fill="#FFFFFF" opacity="0.12"/>
-        \\  <ellipse cx="70" cy="25" rx="25" ry="7" fill="#FFFFFF" opacity="0.10"/>
-        \\  <path d="M0 70 C20 60 40 75 60 65 C80 55 100 75 120 64 C140 55 150 65 160 60 L160 100 L0 100 Z" fill="url(#hill)"/>
-        \\  <path d="M0 80 C25 74 45 85 70 78 C95 70 115 84 140 75 C150 72 156 75 160 73 L160 100 L0 100 Z" fill="#142018" opacity="0.85"/>
-        \\</svg>
-        \\
-    ;
-    try cwd.writeFile(io, .{ .sub_path = "sysroot/wallpaper.svg", .data = svg });
-}
-
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
@@ -192,6 +164,5 @@ pub fn main(init: std.process.Init) !void {
     try cwd.createDirPath(io, "sysroot/icons");
     try cwd.createDirPath(io, "sysroot/generated");
     for (ICONS) |icon| try writeIcon(gpa, io, cwd, icon);
-    try writeWallpaper(io, cwd);
-    std.debug.print("wrote {d} icons + wallpaper.svg\n", .{ICONS.len});
+    std.debug.print("wrote {d} icons\n", .{ICONS.len});
 }

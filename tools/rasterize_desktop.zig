@@ -36,13 +36,7 @@ pub fn main(init: std.process.Init) !void {
         try runTool(io, &.{ svg2_path, in_path, out_path });
     }
 
-    try runTool(io, &.{
-        svg2_path,
-        "sysroot/wallpaper.svg",
-        "sysroot/generated/wallpaper.simg",
-    });
-
-    std.debug.print("desktop assets ready under sysroot/generated/\n", .{});
+    std.debug.print("desktop icons ready under sysroot/generated/\n", .{});
 }
 
 fn runTool(io: std.Io, argv: []const []const u8) !void {

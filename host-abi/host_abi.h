@@ -16,7 +16,8 @@ void host_storage_write(const uint8_t *ptr, uint32_t len);
 uint64_t host_time_wall_ms(void);
 int32_t host_time_tz_min(void);
 
-/* Audio: queue interleaved PCM s16le. sample_rate Hz, channels (1 or 2). */
+/* Audio: queue interleaved PCM s16le. sample_rate Hz, channels (1 or 2).
+ * ptr is a byte address and may be odd; hosts must not require 2-byte alignment. */
 int32_t host_audio_queue(const uint8_t *ptr, uint32_t len, uint32_t sample_rate, uint32_t channels);
 void host_audio_stop(void);
 

@@ -153,9 +153,10 @@ const ROWS = [_][]const KeySpec{
     ROW4[0..],
 };
 
-const GAP: u32 = 3;
-const PAD: u32 = 6;
-const KEY_H: u32 = 28;
+const GAP: u32 = 4;
+const PAD: u32 = 8;
+const KEY_H: u32 = 42;
+const HEADER_H: u32 = 24;
 const ROW_COUNT: u32 = 5;
 
 pub const Osk = struct {
@@ -222,7 +223,7 @@ pub const Osk = struct {
         fill(fb, stride, width, height, panel.x, panel.y, panel.w, panel.h, COLOR_PANEL);
 
         const hint = "ctrl+shift+k toggles";
-        drawText(fb, stride, width, panel.x + PAD, panel.y + 4, hint, COLOR_DIM);
+        drawText(fb, stride, width, panel.x + PAD, panel.y + 6, hint, COLOR_DIM);
 
         const unit = keyUnitWidth(width);
         var row: u32 = 0;
@@ -231,7 +232,7 @@ pub const Osk = struct {
             const row_units = rowUnitCount(specs);
             const row_w = row_units * unit + (row_units -| 1) * GAP;
             var x: u32 = if (width > row_w) (width - row_w) / 2 else PAD;
-            const y = panel.y + 18 + row * (KEY_H + GAP);
+            const y = panel.y + HEADER_H + row * (KEY_H + GAP);
 
             var col: u32 = 0;
             while (col < specs.len) : (col += 1) {
@@ -293,7 +294,7 @@ const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
 const Hit = struct { row: u32, col: u32 };
 
 fn panelHeight() u32 {
-    return 18 + ROW_COUNT * KEY_H + (ROW_COUNT - 1) * GAP + PAD;
+    return HEADER_H + ROW_COUNT * KEY_H + (ROW_COUNT - 1) * GAP + PAD;
 }
 
 fn panelRect(fb_w: u32, fb_h: u32) Rect {
@@ -334,12 +335,12 @@ fn keyLabel(spec: KeySpec, shift_on: bool, buf: *[8]u8) []const u8 {
 
 fn hitTest(px: u32, py: u32, fb_w: u32, fb_h: u32) ?Hit {
     const panel = panelRect(fb_w, fb_h);
-    if (py < panel.y + 18) return null;
+    if (py < panel.y + HEADER_H) return null;
     const unit = keyUnitWidth(fb_w);
-    const local_y = py -| (panel.y + 18);
+    const local_y = py -| (panel.y + HEADER_H);
     const row = local_y / (KEY_H + GAP);
     if (row >= ROW_COUNT) return null;
-    const row_y = panel.y + 18 + row * (KEY_H + GAP);
+    const row_y = panel.y + HEADER_H + row * (KEY_H + GAP);
     if (py < row_y or py >= row_y + KEY_H) return null;
 
     const specs = ROWS[row];

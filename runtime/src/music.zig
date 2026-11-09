@@ -11,7 +11,7 @@ var audio_ok: bool = false;
 const TRACKS = [_][]const u8{ "SoftPulse", "TickWave", "TriTone" };
 const SAMPLE_RATE: u32 = 22050;
 const CHUNK_SAMPLES: usize = 2048;
-var pcm_buf: [CHUNK_SAMPLES * 2]u8 = undefined; // s16le mono
+var pcm_buf: [CHUNK_SAMPLES * 2]u8 align(2) = undefined; // s16le mono
 
 // Simple note tables (Hz * 100 for integer math avoided — use f32).
 const PULSE_NOTES = [_]f32{ 262.0, 330.0, 392.0, 523.0, 392.0, 330.0 };

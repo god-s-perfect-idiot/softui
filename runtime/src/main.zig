@@ -383,9 +383,11 @@ fn loadDesktopAssets() void {
         icons.loadSlot(gui_mod.DRAWER_ICON, data);
     }
 
-    if (fs.find("wallpaper.simg")) |data| {
+    if (fs.find("wallpaper.jpg")) |data| {
         icons.loadWallpaper(data);
-    } else if (fs.find("wallpaper.svg")) |data| {
+    } else if (fs.find("wallpaper.png")) |data| {
+        icons.loadWallpaper(data);
+    } else if (fs.find("wallpaper.simg")) |data| {
         icons.loadWallpaper(data);
     }
 }

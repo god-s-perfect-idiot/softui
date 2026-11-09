@@ -5,7 +5,7 @@ const MAX_WIDTH = 1920;
 const MAX_HEIGHT = 1080;
 const STORAGE_KEY = "softui.sofs";
 /** Bump when factory init.sofs gains/renames demo assets so stale localStorage is replaced. */
-const FACTORY_REV = "2026-11-09-desktop-icons";
+const FACTORY_REV = "2026-11-09-wallpaper-jpg";
 const FACTORY_REV_KEY = "softui.sofs.rev";
 
 function nowNs() {
@@ -152,6 +152,15 @@ function ensureAudio() {
   return audioCtx;
 }
 
+/** s16le view of guest memory. Copies when ptr is not 2-byte aligned. */
+function pcmS16(buffer, ptr, sampleCount) {
+  const byteLen = sampleCount * 2;
+  if ((ptr & 1) === 0) return new Int16Array(buffer, ptr, sampleCount);
+  const copy = new Uint8Array(byteLen);
+  copy.set(new Uint8Array(buffer, ptr, byteLen));
+  return new Int16Array(copy.buffer);
+}
+
 function imageCacheKey(bytes) {
   let h = bytes.length >>> 0;
   if (bytes.length) {
@@ -186,14 +195,12 @@ async function boot() {
       host_audio_queue(ptr, len, sampleRate, channels) {
         const ac = ensureAudio();
         if (!ac || len < 2 || channels < 1) return -1;
-        const bytes = new Uint8Array(instance.exports.memory.buffer, ptr, len);
-        const samples = new Int16Array(
-          bytes.buffer,
-          bytes.byteOffset,
-          Math.floor(len / 2),
-        );
-        const frames = Math.floor(samples.length / channels);
+        const nSamples = Math.floor(len / 2);
+        const frames = Math.floor(nSamples / channels);
         if (frames <= 0) return -1;
+        const sampleCount = frames * channels;
+        // ABI pointer is a byte address. Int16Array rejects an odd start offset.
+        const samples = pcmS16(instance.exports.memory.buffer, ptr, sampleCount);
         const buf = ac.createBuffer(channels, frames, sampleRate || 22050);
         for (let ch = 0; ch < channels; ch++) {
           const data = buf.getChannelData(ch);

@@ -90,7 +90,7 @@ pub fn build(b: *std.Build) void {
         "fire.sox=bootstrap/web/fire.sox",
         "logo.simg=sysroot/logo.simg",
         "sample.png=sysroot/sample.png",
-        "wallpaper.simg=sysroot/generated/wallpaper.simg",
+        "wallpaper.jpg=sysroot/wallpaper.jpg",
         "icon_shell.simg=sysroot/generated/icon_shell.simg",
         "icon_clock.simg=sysroot/generated/icon_clock.simg",
         "icon_cursor.simg=sysroot/generated/icon_cursor.simg",

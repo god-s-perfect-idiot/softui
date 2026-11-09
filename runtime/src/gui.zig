@@ -453,12 +453,11 @@ pub const Gui = struct {
     }
 
     fn drawDesktop(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
-        // Wallpaper over content area; fallback gradient if image not ready.
+        // Backdrop + cover-fit wallpaper (no stretch / center-cropped).
         const content_h = height -| BAR_H;
+        gfx.fillRoundVGrad(fb, stride, width, height, 0, BAR_H, width, content_h, 0, 0xFF121820, 0xFF2A3038);
         if (icons.wallpaperReady()) {
             icons.blitWallpaper(fb, stride, width, height, 0, BAR_H, width, content_h);
-        } else {
-            gfx.fillRoundVGrad(fb, stride, width, height, 0, BAR_H, width, content_h, 0, 0xFF1A2A48, 0xFF8AA0B8);
         }
 
         if (self.drawer_open) {
