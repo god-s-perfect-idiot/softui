@@ -5,7 +5,7 @@ const MAX_WIDTH = 1920;
 const MAX_HEIGHT = 1080;
 const STORAGE_KEY = "softui.sofs";
 /** Bump when factory init.sofs gains/renames demo assets so stale localStorage is replaced. */
-const FACTORY_REV = "2026-11-09-wallpaper-jpg";
+const FACTORY_REV = "2026-11-09-wallpaper-jpg-v2";
 const FACTORY_REV_KEY = "softui.sofs.rev";
 
 function nowNs() {

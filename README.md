@@ -4,9 +4,9 @@ Portable guest OS. Zig kernel/runtime compiles to WASM; a tiny Web bootstrap imp
 
 ## Screenshots
 
-| GUI desktop | SoftShell CLI |
-|-------------|----------------|
-| ![SoftUI GUI desktop](docs/images/gui.png) | ![SoftShell CLI](docs/images/cli.png) |
+| GUI desktop | App drawer | SoftShell CLI |
+|-------------|------------|----------------|
+| ![SoftUI GUI desktop](docs/images/gui.png) | ![SoftUI app drawer](docs/images/drawer.png) | ![SoftShell CLI](docs/images/cli.png) |
 
 ## Quick start
 
