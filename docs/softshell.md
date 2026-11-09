@@ -128,7 +128,6 @@ Direct SoftUI runtime inspection and limited mutation from SoftShell.
 | `sleep` / alarms | **[planned]** |
 | Host ABI audio (PCM s16le) | **[shipped]** (`host_audio_queue`) |
 | SIMG + host PNG decode | **[shipped]** |
-| suigui host bridge | **[shipped]** (`host_sui_paint`; Calc/Hello) |
 | Session tray multitasking | **[shipped]** (home keeps apps; exit closes) |
 | Sockets via Host ABI | **[planned]** |
 | Clipboard Host ABI | **[planned]** |

@@ -18,7 +18,7 @@ When behavior changes, update the matching **guide** (narrative) and **reference
 1. [OS overview](guides/overview.md) — what SoftUI is and is not
 2. [Boot path](guides/boot.md) — power-on to SoftShell prompt
 3. [Filesystem persistence](guides/persistence.md) — how SoftFS survives reload
-4. [suigui SDK](../sdk/README.md) — high-level GUI language + web preview
+4. [GUI styling](gui-styling.md) — default gray plate, primary / secondary colors
 
 ## Guides (elaborate)
 
@@ -38,7 +38,8 @@ When behavior changes, update the matching **guide** (narrative) and **reference
 
 | Doc | Covers |
 |-----|--------|
-| [missing-capabilities.md](missing-capabilities.md) | Desktop demos vs Host/guest gaps; how apps should look |
+| [gui-styling.md](gui-styling.md) | Default gray plate, primary / secondary colors |
+| [missing-capabilities.md](missing-capabilities.md) | Desktop demos vs Host/guest gaps |
 | [architecture.md](architecture.md) | Layer diagram + phase status |
 | [host-abi.md](host-abi.md) | Export/import symbol table |
 | [isa.md](isa.md) | SoftASM opcodes, syscalls, `.sox` / `.sofs` layouts |

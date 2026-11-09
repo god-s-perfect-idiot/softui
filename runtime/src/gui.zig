@@ -1,12 +1,15 @@
-//! SoftUI bootloader + hybrid shell.
-//! Minimal text UI for fast iteration: black background, white labels.
+//! SoftUI bootloader + hybrid shell desktop.
+//! Desktop: black debug bar, wallpaper, skeuomorphic app-drawer shade.
 
 const font = @import("font.zig");
+const gfx = @import("demo_gfx.zig");
+const icons = @import("icons.zig");
 const input = @import("input.zig");
 
 pub const BOOT_TIMEOUT_NS: u64 = 10_000_000_000;
 pub const BAR_H: u32 = 28;
-pub const TRAY_H: u32 = 20;
+pub const DOCK_H: u32 = 56;
+pub const TRAY_H: u32 = DOCK_H;
 pub const HIT_MIN: u32 = 24;
 pub const MAX_SESSIONS: u32 = 6;
 
@@ -28,38 +31,41 @@ pub const Launch = enum {
     stars,
     cube,
     fire,
-    calc,
-    hello,
 };
 
-const TILE_COUNT: u32 = 17;
+const TILE_COUNT: u32 = 15;
 const TILE_LABELS = [_][]const u8{
-    "Shell",
-    "Clock",
-    "Cursor",
-    "Keys",
-    "Image",
-    "Music",
-    "Paint",
-    "UIKit",
-    "Colors",
-    "Text",
-    "Donut",
-    "Plasma",
-    "Stars",
-    "Cube",
-    "Fire",
-    "Calc",
-    "Hello",
+    "Shell",  "Clock",  "Cursor", "Keys",   "Image",
+    "Music",  "Paint",  "UIKit",  "Colors", "Text",
+    "Donut",  "Plasma", "Stars",  "Cube",   "Fire",
 };
+pub const ICON_NAMES = [_][]const u8{
+    "shell",  "clock",  "cursor", "keys",   "image",
+    "music",  "paint",  "uikit",  "colors", "text",
+    "donut",  "plasma", "stars",  "cube",   "fire",
+};
+pub const DRAWER_ICON: usize = TILE_COUNT; // slot after last app icon
 
 const COLOR_BG: u32 = 0xFF000000;
 const COLOR_FG: u32 = 0xFFFFFFFF;
 const COLOR_DIM: u32 = 0xFFAAAAAA;
+const SHADE_TOP: u32 = 0xFF4A4A4A;
+const SHADE_BOT: u32 = 0xFF2C2C2C;
+const TILE_FACE_TOP: u32 = 0xFF5A5A5A;
+const TILE_FACE_BOT: u32 = 0xFF343434;
+const TILE_RIM: u32 = 0xFF1A1A1A;
+const PRIMARY: u32 = 0xFF5078A0;
 
 const TAP_SLOP: u32 = 16;
 const LIST_PAD_X: u32 = 12;
 const LIST_ROW_H: u32 = font.GLYPH_H + 8;
+
+const GRID_PAD: u32 = 16;
+const GRID_GAP: u32 = 12;
+const CELL_W: u32 = 72;
+const CELL_ICON: u32 = 48;
+const CELL_TILE: u32 = 56;
+const CELL_H: u32 = CELL_TILE + 4 + font.GLYPH_H;
 
 const Rect = struct { x: u32, y: u32, w: u32, h: u32 };
 
@@ -67,6 +73,7 @@ pub const Gui = struct {
     stage: Stage = .bootloader,
     choice: Choice = .gui,
     tile: u32 = 0,
+    drawer_open: bool = false,
     deadline_ns: u64 = 0,
     armed: bool = false,
     app_launch: Launch = .shell,
@@ -90,6 +97,7 @@ pub const Gui = struct {
         self.stage = .bootloader;
         self.choice = .gui;
         self.tile = 0;
+        self.drawer_open = false;
         self.deadline_ns = 0;
         self.armed = false;
         self.ptr_down = false;
@@ -101,6 +109,7 @@ pub const Gui = struct {
     pub fn returnToDesktop(self: *Gui) void {
         self.stage = .desktop;
         self.ptr_down = false;
+        self.drawer_open = false;
     }
 
     pub fn appTitle(self: *const Gui) []const u8 {
@@ -120,6 +129,7 @@ pub const Gui = struct {
         self.layout_w = width;
         self.layout_h = height;
         self.now_ns = now_ns;
+        icons.tickPending();
         switch (self.stage) {
             .bootloader => self.tickBootloader(now_ns),
             .desktop => self.tickDesktop(),
@@ -161,7 +171,6 @@ pub const Gui = struct {
     }
 
     fn tickApp(self: *Gui) void {
-        // Keys belong to SoftShell / demos — chrome is pointer only.
         self.drainPointers(0);
     }
 
@@ -205,6 +214,7 @@ pub const Gui = struct {
     fn commitGui(self: *Gui) void {
         self.stage = .desktop;
         self.tile = 0;
+        self.drawer_open = false;
         if (self.on_choose_gui) |cb| cb();
     }
 
@@ -215,11 +225,32 @@ pub const Gui = struct {
 
     fn handleDesktopKey(self: *Gui, ev: input.Event) void {
         const key = ev.key;
+        if (key == input.KEY_ESCAPE) {
+            self.drawer_open = false;
+            return;
+        }
+        if (!self.drawer_open) {
+            if (key == input.KEY_ENTER or key == ' ') {
+                self.drawer_open = true;
+                return;
+            }
+            return;
+        }
         if (key == input.KEY_UP) {
-            if (self.tile == 0) self.tile = TILE_COUNT - 1 else self.tile -= 1;
+            const cols = gridCols(self.layout_w);
+            if (self.tile >= cols) self.tile -= cols;
             return;
         }
         if (key == input.KEY_DOWN) {
+            const cols = gridCols(self.layout_w);
+            if (self.tile + cols < TILE_COUNT) self.tile += cols;
+            return;
+        }
+        if (key == input.KEY_LEFT) {
+            if (self.tile == 0) self.tile = TILE_COUNT - 1 else self.tile -= 1;
+            return;
+        }
+        if (key == input.KEY_RIGHT) {
             self.tile = (self.tile + 1) % TILE_COUNT;
             return;
         }
@@ -258,6 +289,7 @@ pub const Gui = struct {
     fn switchToSession(self: *Gui, idx: u32) void {
         self.focusSession(idx);
         self.stage = .app;
+        self.drawer_open = false;
         if (self.on_launch) |cb| cb(self.app_launch);
     }
 
@@ -292,6 +324,7 @@ pub const Gui = struct {
     fn launchTile(self: *Gui, idx: u32) void {
         const launch: Launch = @enumFromInt(@as(u8, @intCast(idx)));
         self.tile = idx;
+        self.drawer_open = false;
         if (self.findSessionForLaunch(launch)) |si| {
             self.focusSession(si);
         } else {
@@ -375,15 +408,25 @@ pub const Gui = struct {
         }
 
         if (self.stage == .desktop) {
+            if (hit(x, y, drawerBtnRect(w, h))) {
+                self.drawer_open = !self.drawer_open;
+                return;
+            }
             if (hit(x, y, trayRect(w, h))) {
                 self.activateTrayAt(x, y);
                 return;
             }
-            var i: u32 = 0;
-            while (i < TILE_COUNT) : (i += 1) {
-                if (hit(x, y, appListRect(w, h, i))) {
-                    self.launchTile(i);
-                    return;
+            if (self.drawer_open) {
+                var i: u32 = 0;
+                while (i < TILE_COUNT) : (i += 1) {
+                    if (hit(x, y, appCellRect(w, h, i))) {
+                        self.launchTile(i);
+                        return;
+                    }
+                }
+                // Tap empty shade dismisses.
+                if (y >= BAR_H and y < h -| DOCK_H) {
+                    self.drawer_open = false;
                 }
             }
         }
@@ -411,24 +454,135 @@ pub const Gui = struct {
     }
 
     fn drawDesktop(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
-        fill(fb, stride, width, height, 0, 0, width, height, COLOR_BG);
-        self.drawTopBar(fb, width, height, stride, now_ns, "SoftUI", .desktop);
+        // Wallpaper over content area; fallback gradient if image not ready.
+        const content_h = height -| BAR_H;
+        if (icons.wallpaperReady()) {
+            icons.blitWallpaper(fb, stride, width, height, 0, BAR_H, width, content_h);
+        } else {
+            gfx.fillRoundVGrad(fb, stride, width, height, 0, BAR_H, width, content_h, 0, 0xFF1A2A48, 0xFF8AA0B8);
+        }
 
-        const list_bottom = height -| TRAY_H;
+        if (self.drawer_open) {
+            self.drawAppDrawer(fb, width, height, stride);
+        }
+
+        self.drawTopBar(fb, width, height, stride, now_ns, "SoftUI", .desktop);
+        self.drawDock(fb, width, height, stride);
+    }
+
+    fn drawAppDrawer(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
+        const shade_h = height -| BAR_H -| DOCK_H;
+        if (shade_h == 0) return;
+        gfx.fillRoundVGrad(fb, stride, width, height, 0, BAR_H, width, shade_h, 0, SHADE_TOP, SHADE_BOT);
+
+        // Soft top bevel on the shade plate.
+        gfx.hline(fb, stride, width, height, 0, BAR_H, width, 0x33FFFFFF);
+        gfx.hline(fb, stride, width, height, 0, BAR_H + 1, width, 0x22000000);
+
         var i: u32 = 0;
         while (i < TILE_COUNT) : (i += 1) {
-            const r = appListRect(width, height, i);
-            if (r.y + r.h > list_bottom) break;
-            var line_buf: [24]u8 = undefined;
-            const line = formatMarked(&line_buf, TILE_LABELS[i], i == self.tile);
-            drawText(fb, stride, width, r.x, r.y + (r.h -| font.GLYPH_H) / 2, line, COLOR_FG);
+            const cell = appCellRect(width, height, i);
+            if (cell.w == 0 or cell.h == 0) continue;
+            const selected = i == self.tile;
+            drawAppTile(fb, stride, width, height, cell, i, selected);
         }
-        self.drawTray(fb, width, height, stride);
+    }
+
+    fn drawAppTile(fb: []u8, stride: u32, width: u32, height: u32, cell: Rect, index: u32, selected: bool) void {
+        const tile_x = cell.x + (cell.w -| CELL_TILE) / 2;
+        const tile_y = cell.y;
+        const face_top = if (selected) gfx.lighten(PRIMARY, 40) else TILE_FACE_TOP;
+        const face_bot = if (selected) gfx.darken(PRIMARY, 20) else TILE_FACE_BOT;
+        const rim = if (selected) gfx.lighten(PRIMARY, 10) else TILE_RIM;
+        gfx.raisedRound(fb, stride, width, height, tile_x, tile_y, CELL_TILE, CELL_TILE, 12, face_top, face_bot, rim);
+
+        const icon_x = tile_x + (CELL_TILE -| CELL_ICON) / 2;
+        const icon_y = tile_y + (CELL_TILE -| CELL_ICON) / 2;
+        if (icons.slotReady(index)) {
+            icons.blit(fb, stride, width, height, icon_x, icon_y, CELL_ICON, CELL_ICON, index);
+        } else {
+            // Fallback glyph plate while icons decode.
+            gfx.fillRound(fb, stride, width, height, icon_x + 4, icon_y + 4, CELL_ICON -| 8, CELL_ICON -| 8, 8, 0xFF2A2A2A);
+            const label = TILE_LABELS[index];
+            if (label.len > 0) {
+                drawText(fb, stride, width, icon_x + (CELL_ICON -| font.GLYPH_W) / 2, icon_y + (CELL_ICON -| font.GLYPH_H) / 2, label[0..1], COLOR_FG);
+            }
+        }
+
+        const name = TILE_LABELS[index];
+        const tw = font.textWidth(name);
+        const tx = cell.x + (cell.w -| tw) / 2;
+        const ty = tile_y + CELL_TILE + 4;
+        if (ty + font.GLYPH_H <= height -| DOCK_H) {
+            drawText(fb, stride, width, tx, ty, name, if (selected) COLOR_FG else 0xFFF2F2F2);
+        }
+    }
+
+    fn drawDock(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
+        const tr = trayRect(width, height);
+        if (tr.h == 0 or tr.y >= height) return;
+
+        // Frosted dock plate.
+        gfx.fillRoundVGrad(fb, stride, width, height, tr.x, tr.y, tr.w, tr.h, 0, 0xCC3A3A3A, 0xCC222222);
+        gfx.hline(fb, stride, width, height, tr.x, tr.y, tr.w, 0x44FFFFFF);
+
+        // Running session chips on the left.
+        var x: u32 = LIST_PAD_X;
+        const chip_y = tr.y + (tr.h -| 28) / 2;
+        var i: u32 = 0;
+        while (i < MAX_SESSIONS) : (i += 1) {
+            if (!self.session_used[i]) continue;
+            const focused = self.stage == .app and i == self.session_focus;
+            const launch_i = @intFromEnum(self.session_launches[i]);
+            gfx.raisedRound(
+                fb,
+                stride,
+                width,
+                height,
+                x,
+                chip_y,
+                28,
+                28,
+                6,
+                if (focused) gfx.lighten(PRIMARY, 30) else 0xFF5A5A5A,
+                if (focused) gfx.darken(PRIMARY, 25) else 0xFF303030,
+                0xFF1A1A1A,
+            );
+            if (icons.slotReady(launch_i)) {
+                icons.blit(fb, stride, width, height, x + 4, chip_y + 4, 20, 20, launch_i);
+            }
+            x += 34;
+            if (x + 40 >= drawerBtnRect(width, height).x) break;
+        }
+
+        // Center skeuomorphic app-drawer affordance.
+        const db = drawerBtnRect(width, height);
+        const pressed = self.drawer_open;
+        gfx.raisedRound(
+            fb,
+            stride,
+            width,
+            height,
+            db.x,
+            db.y,
+            db.w,
+            db.h,
+            12,
+            if (pressed) 0xFF3A3A3A else 0xFF6A727C,
+            if (pressed) 0xFF222222 else 0xFF2E343C,
+            0xFF101010,
+        );
+        if (icons.slotReady(DRAWER_ICON)) {
+            const iw: u32 = 36;
+            icons.blit(fb, stride, width, height, db.x + (db.w -| iw) / 2, db.y + (db.h -| iw) / 2, iw, iw, DRAWER_ICON);
+        } else {
+            drawDrawerGlyph(fb, stride, width, height, db);
+        }
     }
 
     pub fn drawAppChrome(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32, now_ns: u64) void {
         self.drawTopBar(fb, width, height, stride, now_ns, self.appTitle(), .app);
-        self.drawTray(fb, width, height, stride);
+        self.drawDock(fb, width, height, stride);
     }
 
     const TopBarMode = enum { desktop, app };
@@ -461,25 +615,45 @@ pub const Gui = struct {
         }
         _ = self;
     }
+};
 
-    fn drawTray(self: *Gui, fb: []u8, width: u32, height: u32, stride: u32) void {
-        const tr = trayRect(width, height);
-        if (tr.h == 0 or tr.y >= height) return;
-        fill(fb, stride, width, height, tr.x, tr.y, tr.w, tr.h, COLOR_BG);
-        const ty = tr.y + (tr.h -| font.GLYPH_H) / 2;
-        var x: u32 = LIST_PAD_X;
-        var i: u32 = 0;
-        while (i < MAX_SESSIONS) : (i += 1) {
-            if (!self.session_used[i]) continue;
-            const label = TILE_LABELS[@intFromEnum(self.session_launches[i])];
-            const focused = self.stage == .app and i == self.session_focus;
-            var line_buf: [24]u8 = undefined;
-            const line = formatMarked(&line_buf, label, focused);
-            drawText(fb, stride, width, x, ty, line, if (focused) COLOR_FG else COLOR_DIM);
-            x += font.textWidth(line) + 8;
+fn drawDrawerGlyph(fb: []u8, stride: u32, width: u32, height: u32, db: Rect) void {
+    const gap: u32 = 5;
+    const dot: u32 = 6;
+    const grid: u32 = dot * 3 + gap * 2;
+    const ox = db.x + (db.w -| grid) / 2;
+    const oy = db.y + (db.h -| grid) / 2;
+    var row: u32 = 0;
+    while (row < 3) : (row += 1) {
+        var col: u32 = 0;
+        while (col < 3) : (col += 1) {
+            const x = ox + col * (dot + gap);
+            const y = oy + row * (dot + gap);
+            gfx.raisedRound(fb, stride, width, height, x, y, dot, dot, 2, 0xFFE8EEF4, 0xFF9AA4B0, 0xFF303038);
         }
     }
-};
+}
+
+fn gridCols(width: u32) u32 {
+    const usable = width -| GRID_PAD * 2;
+    const cols = if (usable < CELL_W) 1 else (usable + GRID_GAP) / (CELL_W + GRID_GAP);
+    return @max(1, @min(cols, 6));
+}
+
+fn appCellRect(width: u32, height: u32, index: u32) Rect {
+    const cols = gridCols(width);
+    const shade_h = height -| BAR_H -| DOCK_H;
+    if (shade_h < CELL_H) return .{ .x = 0, .y = 0, .w = 0, .h = 0 };
+    const col = index % cols;
+    const row = index / cols;
+    const total_w = cols * CELL_W + (cols -| 1) * GRID_GAP;
+    const origin_x = (width -| total_w) / 2;
+    const origin_y = BAR_H + GRID_PAD;
+    const x = origin_x + col * (CELL_W + GRID_GAP);
+    const y = origin_y + row * (CELL_H + GRID_GAP);
+    if (y + CELL_H > BAR_H + shade_h) return .{ .x = 0, .y = 0, .w = 0, .h = 0 };
+    return .{ .x = x, .y = y, .w = CELL_W, .h = CELL_H };
+}
 
 fn bootOptionRect(width: u32, height: u32, index: u32) Rect {
     _ = height;
@@ -492,41 +666,38 @@ fn bootOptionRect(width: u32, height: u32, index: u32) Rect {
     };
 }
 
-fn appListRect(width: u32, height: u32, index: u32) Rect {
-    const list_bottom = height -| TRAY_H;
-    const y = BAR_H + 8 + index * LIST_ROW_H;
-    if (y >= list_bottom) return .{ .x = 0, .y = 0, .w = 0, .h = 0 };
-    return .{
-        .x = LIST_PAD_X,
-        .y = y,
-        .w = @max(HIT_MIN * 3, width -| LIST_PAD_X * 2),
-        .h = @min(LIST_ROW_H, list_bottom - y),
-    };
-}
-
 pub fn trayRect(width: u32, height: u32) Rect {
     return .{
         .x = 0,
-        .y = height -| TRAY_H,
+        .y = height -| DOCK_H,
         .w = width,
-        .h = TRAY_H,
+        .h = DOCK_H,
+    };
+}
+
+fn drawerBtnRect(width: u32, height: u32) Rect {
+    const size: u32 = 44;
+    return .{
+        .x = (width -| size) / 2,
+        .y = height -| DOCK_H + (DOCK_H -| size) / 2,
+        .w = size,
+        .h = size,
     };
 }
 
 fn trayHitSession(self: *const Gui, x: u32, y: u32, width: u32, height: u32) ?u32 {
     const tr = trayRect(width, height);
     if (!hit(x, y, tr)) return null;
+    const db = drawerBtnRect(width, height);
     var cx: u32 = LIST_PAD_X;
+    const chip_y = tr.y + (tr.h -| 28) / 2;
     var i: u32 = 0;
     while (i < MAX_SESSIONS) : (i += 1) {
         if (!self.session_used[i]) continue;
-        const label = TILE_LABELS[@intFromEnum(self.session_launches[i])];
-        var line_buf: [24]u8 = undefined;
-        const line = formatMarked(&line_buf, label, false);
-        const slot_w: u32 = font.textWidth(line) + 8;
-        const r = Rect{ .x = cx, .y = tr.y, .w = slot_w, .h = tr.h };
+        const r = Rect{ .x = cx, .y = chip_y, .w = 28, .h = 28 };
+        if (cx + 40 >= db.x) break;
         if (hit(x, y, r)) return i;
-        cx += slot_w;
+        cx += 34;
     }
     return null;
 }
@@ -670,16 +841,6 @@ fn fill(fb: []u8, stride: u32, fb_w: u32, fb_h: u32, x0: u32, y0: u32, w: u32, h
             putBlend(fb, stride, fb_w, x, y, color);
         }
     }
-}
-
-fn put(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {
-    if (x >= width) return;
-    const o: usize = @as(usize, y) * @as(usize, stride) + @as(usize, x) * 4;
-    if (o + 3 >= fb.len) return;
-    fb[o + 0] = @truncate(color >> 16);
-    fb[o + 1] = @truncate(color >> 8);
-    fb[o + 2] = @truncate(color);
-    fb[o + 3] = @truncate(color >> 24);
 }
 
 fn putBlend(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {

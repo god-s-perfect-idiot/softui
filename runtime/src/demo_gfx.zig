@@ -226,14 +226,41 @@ pub fn formatHMS(buf: *[12]u8, total_secs: u32) []const u8 {
     return buf[0..8];
 }
 
-pub const COLOR_BG: u32 = 0xFF000000;
-pub const COLOR_FG: u32 = 0xFFFFFFFF;
-pub const COLOR_DIM: u32 = 0xFF888888;
-pub const COLOR_ACCENT: u32 = 0xFF50B4FF;
-pub const COLOR_PANEL: u32 = 0xFF141414;
-pub const COLOR_BORDER: u32 = 0xFF333333;
+/// OS GUI theme (webOS-inspired). See docs/gui-styling.md.
+pub const COLOR_BG_TOP: u32 = 0xFF4A4A4A;
+pub const COLOR_BG_BOTTOM: u32 = 0xFF2C2C2C;
+pub const COLOR_BG: u32 = 0xFF3A3A3A;
+pub const COLOR_FG: u32 = 0xFFF2F2F2;
+pub const COLOR_DIM: u32 = 0xFFB0B0B0;
+pub const COLOR_PRIMARY: u32 = 0xFF5078A0;
+pub const COLOR_SECONDARY: u32 = 0xFFE8C84A;
+/// @deprecated Prefer COLOR_PRIMARY.
+pub const COLOR_ACCENT: u32 = COLOR_PRIMARY;
+pub const COLOR_PANEL: u32 = 0xFF383838;
+pub const COLOR_BAR: u32 = 0xFF3D3F43;
+pub const COLOR_BORDER: u32 = 0xFF1A1A1A;
 pub const COLOR_OK: u32 = 0xFF3DDC97;
-pub const COLOR_WARN: u32 = 0xFFE8A838;
+pub const COLOR_WARN: u32 = 0xFFE8C84A;
+
+/// Full-rect vertical plate gradient (default SoftUI background).
+pub fn fillVGrad(
+    fb: []u8,
+    stride: u32,
+    fb_w: u32,
+    fb_h: u32,
+    x0: u32,
+    y0: u32,
+    w: u32,
+    h: u32,
+    top: u32,
+    bottom: u32,
+) void {
+    fillRoundVGrad(fb, stride, fb_w, fb_h, x0, y0, w, h, 0, top, bottom);
+}
+
+pub fn clearPlate(fb: []u8, stride: u32, width: u32, height: u32) void {
+    fillVGrad(fb, stride, width, height, 0, 0, width, height, COLOR_BG_TOP, COLOR_BG_BOTTOM);
+}
 
 fn channel(c: u32, shift: u5) u32 {
     return (c >> shift) & 0xFF;

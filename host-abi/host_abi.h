@@ -25,10 +25,6 @@ void host_audio_stop(void);
 int32_t host_image_decode(const uint8_t *src, uint32_t src_len, uint8_t *dst, uint32_t dst_cap,
                           uint32_t *out_w, uint32_t *out_h);
 
-/* suigui bridge: paint .sui source into SoftUI FB. ev: 0=none 1=move 2=click. */
-int32_t host_sui_paint(const uint8_t *src, uint32_t src_len, uint8_t *fb, uint32_t w, uint32_t h,
-                       uint32_t stride, uint32_t ev, uint32_t x, uint32_t y);
-
 /* SoftUI exports (implemented by runtime). */
 int32_t softui_start(uint32_t width, uint32_t height);
 int32_t softui_resize(uint32_t width, uint32_t height); /* match host viewport; keep session */

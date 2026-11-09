@@ -33,6 +33,43 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(pack_exe);
 
+    // --- Desktop SVG → SIMG pipeline ---
+    const gen_svgs_exe = b.addExecutable(.{
+        .name = "gen_desktop_svgs",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/gen_desktop_svgs.zig"),
+            .target = native,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(gen_svgs_exe);
+
+    const svg_to_simg_exe = b.addExecutable(.{
+        .name = "svg_to_simg",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/svg_to_simg.zig"),
+            .target = native,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(svg_to_simg_exe);
+
+    const rasterize_exe = b.addExecutable(.{
+        .name = "rasterize_desktop",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/rasterize_desktop.zig"),
+            .target = native,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(rasterize_exe);
+
+    const run_raster = b.addRunArtifact(rasterize_exe);
+    run_raster.setCwd(b.path("."));
+    run_raster.addArtifactArg(gen_svgs_exe);
+    run_raster.addArtifactArg(svg_to_simg_exe);
+    run_raster.has_side_effects = true;
+
     // Assemble SoftASM demos into bootstrap/web/*.sox
     const demos = [_]struct { soft: []const u8, sox: []const u8 }{
         .{ .soft = "sysroot/donut.soft", .sox = "bootstrap/web/donut.sox" },
@@ -53,10 +90,28 @@ pub fn build(b: *std.Build) void {
         "fire.sox=bootstrap/web/fire.sox",
         "logo.simg=sysroot/logo.simg",
         "sample.png=sysroot/sample.png",
-        "calculator.sui=sysroot/calculator.sui",
-        "hello.sui=sysroot/hello.sui",
+        "wallpaper.simg=sysroot/generated/wallpaper.simg",
+        "icon_shell.simg=sysroot/generated/icon_shell.simg",
+        "icon_clock.simg=sysroot/generated/icon_clock.simg",
+        "icon_cursor.simg=sysroot/generated/icon_cursor.simg",
+        "icon_keys.simg=sysroot/generated/icon_keys.simg",
+        "icon_image.simg=sysroot/generated/icon_image.simg",
+        "icon_music.simg=sysroot/generated/icon_music.simg",
+        "icon_paint.simg=sysroot/generated/icon_paint.simg",
+        "icon_uikit.simg=sysroot/generated/icon_uikit.simg",
+        "icon_colors.simg=sysroot/generated/icon_colors.simg",
+        "icon_text.simg=sysroot/generated/icon_text.simg",
+        "icon_donut.simg=sysroot/generated/icon_donut.simg",
+        "icon_plasma.simg=sysroot/generated/icon_plasma.simg",
+        "icon_stars.simg=sysroot/generated/icon_stars.simg",
+        "icon_cube.simg=sysroot/generated/icon_cube.simg",
+        "icon_fire.simg=sysroot/generated/icon_fire.simg",
+        "icon_calc.simg=sysroot/generated/icon_calc.simg",
+        "icon_hello.simg=sysroot/generated/icon_hello.simg",
+        "icon_drawer.simg=sysroot/generated/icon_drawer.simg",
     });
     run_pack.has_side_effects = true;
+    run_pack.step.dependOn(&run_raster.step);
 
     for (demos) |d| {
         const run_asm = b.addRunArtifact(softasm_exe);
@@ -66,7 +121,7 @@ pub fn build(b: *std.Build) void {
         run_pack.step.dependOn(&run_asm.step);
     }
 
-    const sysroot_step = b.step("sysroot", "Assemble .sox demos and pack init.sofs");
+    const sysroot_step = b.step("sysroot", "Assemble .sox demos, desktop icons, and pack init.sofs");
     sysroot_step.dependOn(&run_pack.step);
 
     // --- WASM runtime ---

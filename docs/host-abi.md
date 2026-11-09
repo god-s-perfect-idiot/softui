@@ -39,7 +39,6 @@ Executables use the **`.sox`** extension (SoftUI executable).
 | `host_audio_queue` | `(ptr, len, rate, channels) -> i32` | Queue interleaved PCM **s16le**; `0` ok |
 | `host_audio_stop` | `() -> void` | Stop / reset host audio graph |
 | `host_image_decode` | `(src, src_len, dst, dst_cap, out_w, out_h) -> i32` | Decode PNG/JPEG/… → RGBA8; `-2` = pending (retry next frame) |
-| `host_sui_paint` | `(src, src_len, fb, w, h, stride, ev, x, y) -> i32` | Paint `.sui` into SoftUI FB (`ev`: 0 none / 1 move / 2 click) |
 
 Web bootstrap loads `localStorage['softui.sofs']` when present, otherwise `init.sofs`. Clear that key to restore the factory image.
 

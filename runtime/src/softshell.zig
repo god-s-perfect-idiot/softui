@@ -22,7 +22,6 @@ pub const Mode = enum {
     stars,
     cube,
     fire,
-    sui,
     txedit,
 };
 
@@ -61,7 +60,6 @@ pub const SoftShell = struct {
     on_uikit: ?*const fn (phase: u32) void = null,
     on_colors: ?*const fn (phase: u32) void = null,
     on_text: ?*const fn (phase: u32) void = null,
-    on_sui: ?*const fn (phase: u32) void = null,
     on_donut: ?*const fn (phase_a: u32, phase_b: u32) void = null,
     on_plasma: ?*const fn (phase: u32) void = null,
     on_stars: ?*const fn (phase: u32) void = null,
@@ -175,7 +173,6 @@ pub const SoftShell = struct {
             .uikit => if (self.on_uikit) |d| d(self.frame),
             .colors => if (self.on_colors) |d| d(self.frame),
             .text => if (self.on_text) |d| d(self.frame),
-            .sui => if (self.on_sui) |d| d(self.frame),
             .donut => if (self.on_donut) |d| d(self.frame *% 7, self.frame *% 5),
             .plasma => if (self.on_plasma) |d| d(self.frame),
             .stars => if (self.on_stars) |d| d(self.frame),
@@ -185,7 +182,7 @@ pub const SoftShell = struct {
     }
 
     fn isInteractiveDemo(mode: Mode) bool {
-        return mode == .keys or mode == .music or mode == .paint or mode == .uikit or mode == .colors or mode == .sui;
+        return mode == .keys or mode == .music or mode == .paint or mode == .uikit or mode == .colors;
     }
 
     fn handleKey(self: *SoftShell, ev: input.Event) void {
@@ -350,11 +347,6 @@ pub const SoftShell = struct {
         if (eql(cmd, "image")) {
             self.cons.write("image demo - Esc to return\n");
             self.mode = .image;
-            return;
-        }
-        if (eql(cmd, "calc") or eql(cmd, "sui") or eql(cmd, "hello")) {
-            self.cons.write("suigui app - Esc to return\n");
-            self.mode = .sui;
             return;
         }
         if (eql(cmd, "music")) {

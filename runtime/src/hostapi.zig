@@ -35,13 +35,6 @@ pub fn imageDecode(src: []const u8, dst: []u8, out_w: *u32, out_h: *u32) bool {
     return rc >= 0;
 }
 
-/// Paint suigui source into SoftUI FB. ev: 0=none 1=move 2=down/click.
-pub fn suiPaint(src: []const u8, fb: []u8, w: u32, h: u32, stride: u32, ev: u32, x: u32, y: u32) i32 {
-    if (builtin.cpu.arch != .wasm32) return -1;
-    if (src.len == 0) return -1;
-    return host_sui_paint(src.ptr, @intCast(src.len), fb.ptr, w, h, stride, ev, x, y);
-}
-
 extern fn host_time_wall_ms() u64;
 extern fn host_time_tz_min() i32;
 extern fn host_audio_queue(ptr: [*]const u8, len: u32, sample_rate: u32, channels: u32) i32;
@@ -53,15 +46,4 @@ extern fn host_image_decode(
     dst_cap: u32,
     out_w: *u32,
     out_h: *u32,
-) i32;
-extern fn host_sui_paint(
-    src: [*]const u8,
-    src_len: u32,
-    fb: [*]u8,
-    w: u32,
-    h: u32,
-    stride: u32,
-    ev: u32,
-    x: u32,
-    y: u32,
 ) i32;

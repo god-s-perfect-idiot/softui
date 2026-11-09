@@ -12,14 +12,14 @@ Legend: **[shipped]** available now · **[demo]** covered by a desktop/SoftShell
 | PCM audio out | `host_audio_queue`, `host_audio_stop` | **Music** (s16le synth) |
 | SoftUI raw image | SoftFS `logo.simg` (SIMG) | **Image** |
 | Host image decode | `host_image_decode` (async pending) | **Image** (`sample.png`) |
-| suigui on SoftUI FB | `host_sui_paint` bridge | **Calc**, **Hello** |
+| SoftASM userspace | `run *.sox` | **Donut** / **Plasma** / **Stars** / **Cube** / **Fire** |
 | Multitasking tray | GUI sessions (max 6) | **home** / tray / **exit** |
 
-### Desktop apps (17)
+### Desktop apps (15)
 
-Shell · Clock · Cursor · Keys · Image · Music · Paint · UIKit · Colors · Text · Donut · Plasma · Stars · Cube · Fire · **Calc** · **Hello**
+Shell · Clock · Cursor · Keys · Image · Music · Paint · UIKit · Colors · Text · Donut · Plasma · Stars · Cube · Fire
 
-SoftFS factory image also packs: `logo.simg`, `sample.png`, `calculator.sui`, `hello.sui`, plus SoftASM demos.
+SoftFS factory image packs: `logo.simg`, `sample.png`, plus SoftASM demos (`donut.sox` … `fire.sox`).
 
 ### Multitasking behavior
 
@@ -60,8 +60,7 @@ SoftFS factory image also packs: `logo.simg`, `sample.png`, `calculator.sui`, `h
 ### UI / apps
 | Capability | Status |
 |------------|--------|
-| Host-bridged suigui (Calc/Hello) | **[shipped]** |
-| In-guest Zig suigui runtime | **[gap]** (independence / offline hosts) |
+| SoftASM `.sox` apps | **[shipped]** |
 | Files / Settings apps | **[gap]** |
 | Background tick while unfocused | **[gap]** (switch re-enters; no parallel ticks) |
 | Notifications | **[gap]** |
@@ -79,7 +78,7 @@ SoftFS factory image also packs: `logo.simg`, `sample.png`, `calculator.sui`, `h
 
 1. Background ticks for unfocused sessions (music keeps playing in tray).
 2. Files app (SoftFS browser) + Settings (`kinfo` / colors).
-3. In-guest suigui subset (drop host bridge dependency).
+3. More SoftASM apps that use the OS gray plate + primary/secondary tokens ([gui-styling.md](gui-styling.md)).
 4. Clipboard + sleep Host ABI.
 
-See also: [softshell.md](softshell.md), [host-abi.md](host-abi.md), [sdk/docs/roadmap.md](../sdk/docs/roadmap.md).
+See also: [softshell.md](softshell.md), [host-abi.md](host-abi.md), [gui-styling.md](gui-styling.md).

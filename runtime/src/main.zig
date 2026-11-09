@@ -16,17 +16,15 @@ const paint = @import("paint.zig");
 const uikit = @import("uikit.zig");
 const colors = @import("colors.zig");
 const typo = @import("typo.zig");
-const sui_app = @import("sui_app.zig");
 const input = @import("input.zig");
 const softshell = @import("softshell.zig");
 const gui_mod = @import("gui.zig");
 const osk_mod = @import("osk.zig");
 const hostapi = @import("hostapi.zig");
+const icons = @import("icons.zig");
 
 /// Factory demo assets (fallback when SoftFS predates packing these files).
 const EMBED_LOGO_SIMG = @embedFile("assets/logo.simg");
-const EMBED_CALC_SUI = @embedFile("assets/calculator.sui");
-const EMBED_HELLO_SUI = @embedFile("assets/hello.sui");
 
 const MAX_WIDTH: u32 = 1920;
 const MAX_HEIGHT: u32 = 1080;
@@ -169,9 +167,6 @@ fn shellColors(phase: u32) void {
 fn shellText(phase: u32) void {
     typo.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
 }
-fn shellSui(phase: u32) void {
-    sui_app.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
-}
 fn shellDonut(phase_a: u32, phase_b: u32) void {
     hookFbDonut(phase_a, phase_b);
 }
@@ -294,7 +289,6 @@ fn wireShellCallbacks() void {
     shell.on_uikit = shellUikit;
     shell.on_colors = shellColors;
     shell.on_text = shellText;
-    shell.on_sui = shellSui;
     shell.on_donut = shellDonut;
     shell.on_plasma = shellPlasma;
     shell.on_stars = shellStars;
@@ -360,7 +354,40 @@ fn enterGuiSession() void {
     shell.gui_hosted = true;
     shell.ready = false;
     shell.content_y = 0;
+    loadDesktopAssets();
     logMsg("softui: GUI desktop session");
+}
+
+fn loadDesktopAssets() void {
+    icons.reset();
+    if (!fs_ok) return;
+
+    // SoftFS v1 is flat — pack as icon_<name>.simg / .svg (SVG via host decode).
+    var i: usize = 0;
+    while (i < gui_mod.ICON_NAMES.len) : (i += 1) {
+        var name_buf: [40]u8 = undefined;
+        const simg = std.fmt.bufPrint(&name_buf, "icon_{s}.simg", .{gui_mod.ICON_NAMES[i]}) catch continue;
+        if (fs.find(simg)) |data| {
+            icons.loadSlot(i, data);
+            continue;
+        }
+        const svg = std.fmt.bufPrint(&name_buf, "icon_{s}.svg", .{gui_mod.ICON_NAMES[i]}) catch continue;
+        if (fs.find(svg)) |data| {
+            icons.loadSlot(i, data);
+        }
+    }
+
+    if (fs.find("icon_drawer.simg")) |data| {
+        icons.loadSlot(gui_mod.DRAWER_ICON, data);
+    } else if (fs.find("icon_drawer.svg")) |data| {
+        icons.loadSlot(gui_mod.DRAWER_ICON, data);
+    }
+
+    if (fs.find("wallpaper.simg")) |data| {
+        icons.loadWallpaper(data);
+    } else if (fs.find("wallpaper.svg")) |data| {
+        icons.loadWallpaper(data);
+    }
 }
 
 fn launchFromDesktop(launch: gui_mod.Launch) void {
@@ -404,8 +431,6 @@ fn launchFromDesktop(launch: gui_mod.Launch) void {
         .stars => launchCapDemo(fs_ptr, .stars),
         .cube => launchCapDemo(fs_ptr, .cube),
         .fire => launchCapDemo(fs_ptr, .fire),
-        .calc => launchSuiApp(fs_ptr, "calculator.sui"),
-        .hello => launchSuiApp(fs_ptr, "hello.sui"),
     }
 }
 
@@ -414,30 +439,6 @@ fn launchCapDemo(fs_ptr: ?*softfs.Fs, mode: softshell.Mode) void {
     if (mode == .image) loadImageAsset();
     shell.enterMode(mode);
     logMsg("softui: launch demo");
-}
-
-fn launchSuiApp(fs_ptr: ?*softfs.Fs, path: []const u8) void {
-    ensureShellForDemo(fs_ptr);
-    sui_app.reset();
-    var loaded = false;
-    if (fs_ok) {
-        if (fs.find(path)) |data| {
-            sui_app.loadSource(path, data);
-            loaded = true;
-        }
-    }
-    if (!loaded) {
-        if (std.mem.eql(u8, path, "calculator.sui")) {
-            sui_app.loadSource(path, EMBED_CALC_SUI);
-            loaded = true;
-        } else if (std.mem.eql(u8, path, "hello.sui")) {
-            sui_app.loadSource(path, EMBED_HELLO_SUI);
-            loaded = true;
-        }
-    }
-    if (!loaded) logMsg("softui: missing .sui");
-    shell.enterMode(.sui);
-    logMsg("softui: launch sui");
 }
 
 fn loadImageAsset() void {

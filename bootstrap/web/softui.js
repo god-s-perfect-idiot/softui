@@ -1,5 +1,3 @@
-import { suiPaint } from "./sui_host.js";
-
 const canvas = document.getElementById("fb");
 const ctx = canvas.getContext("2d", { alpha: false });
 
@@ -7,7 +5,7 @@ const MAX_WIDTH = 1920;
 const MAX_HEIGHT = 1080;
 const STORAGE_KEY = "softui.sofs";
 /** Bump when factory init.sofs gains/renames demo assets so stale localStorage is replaced. */
-const FACTORY_REV = "2026-11-09-demos";
+const FACTORY_REV = "2026-11-09-desktop-icons";
 const FACTORY_REV_KEY = "softui.sofs.rev";
 
 function nowNs() {
@@ -22,6 +20,24 @@ const imageCache = new Map();
 function decodeUtf8(memory, ptr, len) {
   const bytes = new Uint8Array(memory.buffer, ptr, len);
   return new TextDecoder().decode(bytes);
+}
+
+/** Best-effort MIME so host decode accepts SVG/PNG/JPEG. */
+function sniffImageMime(bytes) {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  let i = 0;
+  while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) i++;
+  if (i + 4 <= bytes.length && bytes[i] === 0x3c) {
+    // '<' — XML/SVG
+    const head = new TextDecoder().decode(bytes.subarray(i, Math.min(bytes.length, i + 256))).toLowerCase();
+    if (head.includes("<svg") || head.startsWith("<?xml")) return "image/svg+xml";
+  }
+  return "application/octet-stream";
 }
 
 function bytesToBase64(bytes) {
@@ -214,7 +230,7 @@ async function boot() {
         }
         imageCache.set(key, "pending");
         const copy = src.slice();
-        createImageBitmap(new Blob([copy]))
+        createImageBitmap(new Blob([copy], { type: sniffImageMime(copy) }))
           .then((bmp) => {
             const c = new OffscreenCanvas(bmp.width, bmp.height);
             const cctx = c.getContext("2d", { alpha: true });
@@ -227,25 +243,6 @@ async function boot() {
             imageCache.delete(key);
           });
         return -2;
-      },
-      host_sui_paint(srcPtr, srcLen, fbPtr, w, h, stride, ev, x, y) {
-        try {
-          return suiPaint(
-            instance.exports.memory,
-            srcPtr,
-            srcLen,
-            fbPtr,
-            w,
-            h,
-            stride,
-            ev,
-            x,
-            y,
-          );
-        } catch (err) {
-          console.warn("[softui] sui paint failed", err);
-          return -1;
-        }
       },
     },
   };
