@@ -45,7 +45,7 @@ const Gradient = struct {
 
     fn sample(self: *const Gradient, t_in: f32) Color {
         if (self.stop_n == 0) return .{};
-        var t = std.math.clamp(t_in, 0.0, 1.0);
+        const t = std.math.clamp(t_in, 0.0, 1.0);
         if (self.stop_n == 1) return self.stops[0].color;
         var i: usize = 0;
         while (i + 1 < self.stop_n and self.stops[i + 1].offset < t) : (i += 1) {}
@@ -696,6 +696,6 @@ pub fn main(init: std.process.Init) !void {
     std.mem.writeInt(u32, out[8..12], height, .little);
     @memcpy(out[12..], pixels);
 
-    try cwd.writeFile(.{ .sub_path = out_path, .data = out });
+    try cwd.writeFile(io, .{ .sub_path = out_path, .data = out });
     std.debug.print("wrote {s} ({d}x{d}, {d} bytes)\n", .{ out_path, width, height, out.len });
 }

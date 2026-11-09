@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4050A0"/>
+      <stop offset="1" stop-color="#182040"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="6" width="56" height="56" rx="12" fill="#000000" opacity="0.28"/>
+  <rect x="2" y="2" width="56" height="56" rx="12" fill="#1A1A1A"/>
+  <rect x="3" y="3" width="54" height="54" rx="11" fill="url(#face)"/>
+  <rect x="6" y="5" width="48" height="16" rx="8" fill="url(#sheen)"/>
+  <rect x="4" y="4" width="52" height="2" rx="1" fill="#FFFFFF" opacity="0.35"/>
+  <polygon points="32,16 35,26 46,26 37,33 40,44 32,37 24,44 27,33 18,26 29,26" fill="#E8C84A"/>
+  <circle cx="18" cy="20" r="1.5" fill="#FFFFFF"/>
+  <circle cx="46" cy="18" r="1.2" fill="#FFFFFF"/>
+  <circle cx="48" cy="40" r="1" fill="#FFFFFF"/>
+</svg>

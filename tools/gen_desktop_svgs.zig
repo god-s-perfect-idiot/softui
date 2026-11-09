@@ -127,10 +127,8 @@ const ICONS = [_]Icon{
     },
 };
 
-fn writeIcon(gpa: std.mem.Allocator, cwd: std.Io.Dir, icon: Icon) !void {
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(gpa);
-    try buf.writer(gpa).print(
+fn writeIcon(gpa: std.mem.Allocator, io: std.Io, cwd: std.Io.Dir, icon: Icon) !void {
+    const data = try std.fmt.allocPrint(gpa,
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
         \\  <defs>
@@ -152,13 +150,14 @@ fn writeIcon(gpa: std.mem.Allocator, cwd: std.Io.Dir, icon: Icon) !void {
         \\</svg>
         \\
     , .{ icon.face_top, icon.face_bot, icon.glyph });
+    defer gpa.free(data);
 
     var path_buf: [64]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buf, "sysroot/icons/{s}.svg", .{icon.name});
-    try cwd.writeFile(.{ .sub_path = path, .data = buf.items });
+    try cwd.writeFile(io, .{ .sub_path = path, .data = data });
 }
 
-fn writeWallpaper(cwd: std.Io.Dir) !void {
+fn writeWallpaper(io: std.Io, cwd: std.Io.Dir) !void {
     const svg =
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100" viewBox="0 0 160 100">
@@ -183,15 +182,16 @@ fn writeWallpaper(cwd: std.Io.Dir) !void {
         \\</svg>
         \\
     ;
-    try cwd.writeFile(.{ .sub_path = "sysroot/wallpaper.svg", .data = svg });
+    try cwd.writeFile(io, .{ .sub_path = "sysroot/wallpaper.svg", .data = svg });
 }
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
+    const io = init.io;
     var cwd = std.Io.Dir.cwd();
-    try cwd.makePath("sysroot/icons");
-    try cwd.makePath("sysroot/generated");
-    for (ICONS) |icon| try writeIcon(gpa, cwd, icon);
-    try writeWallpaper(cwd);
+    try cwd.createDirPath(io, "sysroot/icons");
+    try cwd.createDirPath(io, "sysroot/generated");
+    for (ICONS) |icon| try writeIcon(gpa, io, cwd, icon);
+    try writeWallpaper(io, cwd);
     std.debug.print("wrote {d} icons + wallpaper.svg\n", .{ICONS.len});
 }

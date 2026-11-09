@@ -1,10 +1,6 @@
 //! Generate SoftUI desktop SVG sources, then rasterize them to SIMG.
-//! usage: rasterize_desktop
+//! usage: rasterize_desktop <gen_desktop_svgs> <svg_to_simg>
 const std = @import("std");
-
-// Re-use the SVG emitter by shelling out would be heavy; instead invoke the
-// same write routines via a child process of gen_desktop_svgs + svg_to_simg.
-// This driver assumes those tools are passed as argv[1]=gen, argv[2]=svg2simg.
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -20,20 +16,10 @@ pub fn main(init: std.process.Init) !void {
     };
     const svg2_path = args.next() orelse return error.Usage;
 
-    // 1) Emit SVG sources
-    {
-        var child = std.process.Child.init(&.{ gen_path }, gpa);
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-        const term = try child.spawnAndWait();
-        switch (term) {
-            .Exited => |code| if (code != 0) return error.GenFailed,
-            else => return error.GenFailed,
-        }
-    }
+    try runTool(io, &.{gen_path});
 
     var cwd = std.Io.Dir.cwd();
-    try cwd.makePath("sysroot/generated");
+    try cwd.createDirPath(io, "sysroot/generated");
 
     const icon_names = [_][]const u8{
         "shell",  "clock",  "cursor", "keys",   "image",
@@ -47,34 +33,23 @@ pub fn main(init: std.process.Init) !void {
         var out_buf: [80]u8 = undefined;
         const in_path = try std.fmt.bufPrint(&in_buf, "sysroot/icons/{s}.svg", .{name});
         const out_path = try std.fmt.bufPrint(&out_buf, "sysroot/generated/icon_{s}.simg", .{name});
-        var child = std.process.Child.init(&.{ svg2_path, in_path, out_path }, gpa);
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-        const term = try child.spawnAndWait();
-        switch (term) {
-            .Exited => |code| if (code != 0) {
-                std.debug.print("failed: {s}\n", .{name});
-                return error.RasterFailed;
-            },
-            else => return error.RasterFailed,
-        }
+        try runTool(io, &.{ svg2_path, in_path, out_path });
     }
 
-    {
-        var child = std.process.Child.init(&.{
-            svg2_path,
-            "sysroot/wallpaper.svg",
-            "sysroot/generated/wallpaper.simg",
-        }, gpa);
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-        const term = try child.spawnAndWait();
-        switch (term) {
-            .Exited => |code| if (code != 0) return error.RasterFailed,
-            else => return error.RasterFailed,
-        }
-    }
+    try runTool(io, &.{
+        svg2_path,
+        "sysroot/wallpaper.svg",
+        "sysroot/generated/wallpaper.simg",
+    });
 
-    _ = io;
     std.debug.print("desktop assets ready under sysroot/generated/\n", .{});
+}
+
+fn runTool(io: std.Io, argv: []const []const u8) !void {
+    var child = try std.process.spawn(io, .{ .argv = argv });
+    const term = try child.wait(io);
+    if (!term.success()) {
+        std.debug.print("command failed: {s}\n", .{argv[0]});
+        return error.ToolFailed;
+    }
 }

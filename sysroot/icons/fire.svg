@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F08040"/>
+      <stop offset="1" stop-color="#A02810"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="6" width="56" height="56" rx="12" fill="#000000" opacity="0.28"/>
+  <rect x="2" y="2" width="56" height="56" rx="12" fill="#1A1A1A"/>
+  <rect x="3" y="3" width="54" height="54" rx="11" fill="url(#face)"/>
+  <rect x="6" y="5" width="48" height="16" rx="8" fill="url(#sheen)"/>
+  <rect x="4" y="4" width="52" height="2" rx="1" fill="#FFFFFF" opacity="0.35"/>
+  <path d="M32 14 C28 24 20 28 20 38 C20 46 26 50 32 50 C38 50 44 46 44 38 C44 28 36 24 32 14 Z" fill="#FFD060"/>
+  <path d="M32 24 C30 30 26 32 26 38 C26 42 29 45 32 45 C35 45 38 42 38 38 C38 32 34 30 32 24 Z" fill="#FF6030"/>
+  <path d="M32 34 C31 36 30 37 30 39 C30 41 31 42 32 42 C33 42 34 41 34 39 C34 37 33 36 32 34 Z" fill="#FFF0C0"/>
+</svg>

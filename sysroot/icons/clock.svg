@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F0E6C8"/>
+      <stop offset="1" stop-color="#C8A86A"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="6" width="56" height="56" rx="12" fill="#000000" opacity="0.28"/>
+  <rect x="2" y="2" width="56" height="56" rx="12" fill="#1A1A1A"/>
+  <rect x="3" y="3" width="54" height="54" rx="11" fill="url(#face)"/>
+  <rect x="6" y="5" width="48" height="16" rx="8" fill="url(#sheen)"/>
+  <rect x="4" y="4" width="52" height="2" rx="1" fill="#FFFFFF" opacity="0.35"/>
+  <circle cx="32" cy="32" r="14" fill="#FFF8E8"/>
+  <circle cx="32" cy="32" r="14" fill="none" stroke="#8A7040" stroke-width="2"/>
+  <line x1="32" y1="32" x2="32" y2="22" stroke="#3A3020" stroke-width="2"/>
+  <line x1="32" y1="32" x2="40" y2="36" stroke="#3A3020" stroke-width="2"/>
+  <circle cx="32" cy="32" r="2" fill="#C04040"/>
+</svg>

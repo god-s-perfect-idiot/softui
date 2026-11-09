@@ -63,7 +63,6 @@ const LIST_ROW_H: u32 = font.GLYPH_H + 8;
 const GRID_PAD: u32 = 16;
 const GRID_GAP: u32 = 12;
 const CELL_W: u32 = 72;
-const CELL_ICON: u32 = 48;
 const CELL_TILE: u32 = 56;
 const CELL_H: u32 = CELL_TILE + 4 + font.GLYPH_H;
 
@@ -489,23 +488,20 @@ pub const Gui = struct {
     }
 
     fn drawAppTile(fb: []u8, stride: u32, width: u32, height: u32, cell: Rect, index: u32, selected: bool) void {
+        // SVG/SIMG icons are already skeuomorphic tiles — blit them directly.
         const tile_x = cell.x + (cell.w -| CELL_TILE) / 2;
         const tile_y = cell.y;
-        const face_top = if (selected) gfx.lighten(PRIMARY, 40) else TILE_FACE_TOP;
-        const face_bot = if (selected) gfx.darken(PRIMARY, 20) else TILE_FACE_BOT;
-        const rim = if (selected) gfx.lighten(PRIMARY, 10) else TILE_RIM;
-        gfx.raisedRound(fb, stride, width, height, tile_x, tile_y, CELL_TILE, CELL_TILE, 12, face_top, face_bot, rim);
-
-        const icon_x = tile_x + (CELL_TILE -| CELL_ICON) / 2;
-        const icon_y = tile_y + (CELL_TILE -| CELL_ICON) / 2;
+        if (selected) {
+            gfx.fillRound(fb, stride, width, height, tile_x -| 2, tile_y -| 2, CELL_TILE + 4, CELL_TILE + 4, 14, 0x885078A0);
+        }
+        gfx.softShadow(fb, stride, width, height, tile_x, tile_y, CELL_TILE, CELL_TILE, 12);
         if (icons.slotReady(index)) {
-            icons.blit(fb, stride, width, height, icon_x, icon_y, CELL_ICON, CELL_ICON, index);
+            icons.blit(fb, stride, width, height, tile_x, tile_y, CELL_TILE, CELL_TILE, index);
         } else {
-            // Fallback glyph plate while icons decode.
-            gfx.fillRound(fb, stride, width, height, icon_x + 4, icon_y + 4, CELL_ICON -| 8, CELL_ICON -| 8, 8, 0xFF2A2A2A);
+            gfx.raisedRound(fb, stride, width, height, tile_x, tile_y, CELL_TILE, CELL_TILE, 12, TILE_FACE_TOP, TILE_FACE_BOT, TILE_RIM);
             const label = TILE_LABELS[index];
             if (label.len > 0) {
-                drawText(fb, stride, width, icon_x + (CELL_ICON -| font.GLYPH_W) / 2, icon_y + (CELL_ICON -| font.GLYPH_H) / 2, label[0..1], COLOR_FG);
+                drawText(fb, stride, width, tile_x + (CELL_TILE -| font.GLYPH_W) / 2, tile_y + (CELL_TILE -| font.GLYPH_H) / 2, label[0..1], COLOR_FG);
             }
         }
 
@@ -603,19 +599,66 @@ pub const Gui = struct {
                 if (dbg_x + font.textWidth(dbg) + 8 < kbd.x) {
                     drawText(fb, stride, width, dbg_x, ty, dbg, COLOR_DIM);
                 }
-                drawText(fb, stride, width, kbd.x, ty, "kbd", COLOR_FG);
             },
             .app => {
                 const home = homeBtnRect(width);
                 const exit = exitBtnRect(width);
                 drawText(fb, stride, width, home.x, ty, "home", COLOR_FG);
                 drawText(fb, stride, width, exit.x, ty, "exit", COLOR_FG);
-                drawText(fb, stride, width, kbd.x, ty, "kbd", COLOR_FG);
             },
         }
+        drawKbdButton(fb, stride, width, height, kbd);
         _ = self;
     }
 };
+
+fn drawKbdButton(fb: []u8, stride: u32, width: u32, height: u32, r: Rect) void {
+    if (r.w == 0 or r.h == 0) return;
+    // Raised chrome chip in the black bar.
+    gfx.raisedRound(fb, stride, width, height, r.x, r.y, r.w, r.h, 5, 0xFF6A727C, 0xFF2E343C, 0xFF101010);
+
+    // Mini keyboard glyph: body + key rows + spacebar.
+    const pad: u32 = 4;
+    const body_x = r.x + pad;
+    const body_y = r.y + pad;
+    const body_w = r.w -| pad * 2;
+    const body_h = r.h -| pad * 2;
+    if (body_w < 10 or body_h < 8) return;
+
+    gfx.fillRound(fb, stride, width, height, body_x, body_y, body_w, body_h, 3, 0xFF1A1E24);
+    gfx.hline(fb, stride, width, height, body_x + 1, body_y + 1, body_w -| 2, 0x33FFFFFF);
+
+    const key_h: u32 = 3;
+    const key_gap: u32 = 1;
+    const row0_y = body_y + 2;
+    const row1_y = row0_y + key_h + key_gap;
+    const row2_y = row1_y + key_h + key_gap;
+
+    // Top two rows of keys.
+    var x: u32 = body_x + 2;
+    var i: u32 = 0;
+    while (i < 5) : (i += 1) {
+        const kw: u32 = if (i == 4) 4 else 3;
+        if (x + kw > body_x + body_w -| 2) break;
+        gfx.fillRound(fb, stride, width, height, x, row0_y, kw, key_h, 1, 0xFFD0D6E0);
+        x += kw + key_gap;
+    }
+    x = body_x + 3;
+    i = 0;
+    while (i < 4) : (i += 1) {
+        const kw: u32 = 3;
+        if (x + kw > body_x + body_w -| 2) break;
+        gfx.fillRound(fb, stride, width, height, x, row1_y, kw, key_h, 1, 0xFFD0D6E0);
+        x += kw + key_gap;
+    }
+    // Spacebar.
+    if (row2_y + key_h <= body_y + body_h -| 1) {
+        const sw = body_w -| 6;
+        if (sw > 4) {
+            gfx.fillRound(fb, stride, width, height, body_x + 3, row2_y, sw, key_h, 1, 0xFFB0B8C4);
+        }
+    }
+}
 
 fn drawDrawerGlyph(fb: []u8, stride: u32, width: u32, height: u32, db: Rect) void {
     const gap: u32 = 5;
@@ -714,12 +757,12 @@ fn homeBtnRect(width: u32) Rect {
 }
 
 fn kbdBtnRect(width: u32) Rect {
-    const tw: u32 = 3 * font.GLYPH_W;
+    const size: u32 = BAR_H -| 6;
     return .{
-        .x = width -| tw -| LIST_PAD_X,
-        .y = 0,
-        .w = tw + LIST_PAD_X,
-        .h = BAR_H,
+        .x = width -| size -| LIST_PAD_X,
+        .y = (BAR_H -| size) / 2,
+        .w = size,
+        .h = size,
     };
 }
 
