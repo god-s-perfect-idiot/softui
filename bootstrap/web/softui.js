@@ -1,13 +1,23 @@
+import { suiPaint } from "./sui_host.js";
+
 const canvas = document.getElementById("fb");
 const ctx = canvas.getContext("2d", { alpha: false });
 
 const MAX_WIDTH = 1920;
 const MAX_HEIGHT = 1080;
 const STORAGE_KEY = "softui.sofs";
+/** Bump when factory init.sofs gains/renames demo assets so stale localStorage is replaced. */
+const FACTORY_REV = "2026-11-09-demos";
+const FACTORY_REV_KEY = "softui.sofs.rev";
 
 function nowNs() {
   return BigInt(Math.floor(performance.now() * 1e6));
 }
+
+/** @type {AudioContext | null} */
+let audioCtx = null;
+/** @type {Map<string, any>} */
+const imageCache = new Map();
 
 function decodeUtf8(memory, ptr, len) {
   const bytes = new Uint8Array(memory.buffer, ptr, len);
@@ -32,6 +42,11 @@ function base64ToBytes(b64) {
 
 function loadPersistedDisk() {
   try {
+    if (localStorage.getItem(FACTORY_REV_KEY) !== FACTORY_REV) {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(FACTORY_REV_KEY, FACTORY_REV);
+      return null;
+    }
     const b64 = localStorage.getItem(STORAGE_KEY);
     if (!b64) return null;
     const bytes = base64ToBytes(b64);
@@ -111,6 +126,26 @@ function viewportPixels() {
   return { w, h };
 }
 
+function ensureAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function imageCacheKey(bytes) {
+  let h = bytes.length >>> 0;
+  if (bytes.length) {
+    h = (h * 33 + bytes[0]) >>> 0;
+    h = (h * 33 + bytes[bytes.length >> 1]) >>> 0;
+    h = (h * 33 + bytes[bytes.length - 1]) >>> 0;
+  }
+  return `${bytes.length}:${h}`;
+}
+
 async function boot() {
   let instance;
   const imports = {
@@ -125,6 +160,92 @@ async function boot() {
       host_present() {},
       host_storage_write(ptr, len) {
         savePersistedDisk(instance.exports.memory, ptr, len);
+      },
+      host_time_wall_ms() {
+        return BigInt(Date.now());
+      },
+      host_time_tz_min() {
+        return -new Date().getTimezoneOffset();
+      },
+      host_audio_queue(ptr, len, sampleRate, channels) {
+        const ac = ensureAudio();
+        if (!ac || len < 2 || channels < 1) return -1;
+        const bytes = new Uint8Array(instance.exports.memory.buffer, ptr, len);
+        const samples = new Int16Array(
+          bytes.buffer,
+          bytes.byteOffset,
+          Math.floor(len / 2),
+        );
+        const frames = Math.floor(samples.length / channels);
+        if (frames <= 0) return -1;
+        const buf = ac.createBuffer(channels, frames, sampleRate || 22050);
+        for (let ch = 0; ch < channels; ch++) {
+          const data = buf.getChannelData(ch);
+          for (let i = 0; i < frames; i++) {
+            data[i] = samples[i * channels + ch] / 32768;
+          }
+        }
+        const src = ac.createBufferSource();
+        src.buffer = buf;
+        src.connect(ac.destination);
+        src.start();
+        return 0;
+      },
+      host_audio_stop() {
+        if (audioCtx) {
+          audioCtx.close().catch(() => {});
+          audioCtx = null;
+        }
+      },
+      host_image_decode(srcPtr, srcLen, dstPtr, dstCap, outWPtr, outHPtr) {
+        const mem = instance.exports.memory;
+        const src = new Uint8Array(mem.buffer, srcPtr, srcLen);
+        const key = imageCacheKey(src);
+        const hit = imageCache.get(key);
+        if (hit === "pending") return -2;
+        if (hit && hit.rgba) {
+          const need = hit.w * hit.h * 4;
+          if (need > dstCap) return -3;
+          new Uint8Array(mem.buffer, dstPtr, need).set(hit.rgba.subarray(0, need));
+          const view = new DataView(mem.buffer);
+          view.setUint32(outWPtr, hit.w, true);
+          view.setUint32(outHPtr, hit.h, true);
+          return need;
+        }
+        imageCache.set(key, "pending");
+        const copy = src.slice();
+        createImageBitmap(new Blob([copy]))
+          .then((bmp) => {
+            const c = new OffscreenCanvas(bmp.width, bmp.height);
+            const cctx = c.getContext("2d", { alpha: true });
+            cctx.drawImage(bmp, 0, 0);
+            const data = cctx.getImageData(0, 0, bmp.width, bmp.height);
+            imageCache.set(key, { w: bmp.width, h: bmp.height, rgba: data.data });
+          })
+          .catch((err) => {
+            console.warn("[softui] image decode failed", err);
+            imageCache.delete(key);
+          });
+        return -2;
+      },
+      host_sui_paint(srcPtr, srcLen, fbPtr, w, h, stride, ev, x, y) {
+        try {
+          return suiPaint(
+            instance.exports.memory,
+            srcPtr,
+            srcLen,
+            fbPtr,
+            w,
+            h,
+            stride,
+            ev,
+            x,
+            y,
+          );
+        } catch (err) {
+          console.warn("[softui] sui paint failed", err);
+          return -1;
+        }
       },
     },
   };
@@ -255,6 +376,9 @@ async function boot() {
     softui_push_pointer(x, y, buttons, kind);
   }
 
+  canvas.addEventListener("pointermove", (e) => {
+    pushPointer(e, 0);
+  });
   canvas.addEventListener("pointerdown", (e) => {
     canvas.focus();
     canvas.setPointerCapture?.(e.pointerId);

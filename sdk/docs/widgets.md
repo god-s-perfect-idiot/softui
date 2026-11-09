@@ -65,4 +65,4 @@ Plain panel / spacer region. Useful as a flexible render area with `grow` / `fil
 
 ## Styling notes
 
-The preview uses SoftUI-inspired colors (dark panel, blue accent). SoftUI guest hosting will match SoftUI chrome tokens.
+Controls are skeuomorphic: raised glossy buttons, inset text wells, bevel rims, and soft drop shadows on a dark SoftUI plate. SoftUI guest hosting matches these chrome tokens.

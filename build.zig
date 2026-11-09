@@ -51,6 +51,10 @@ pub fn build(b: *std.Build) void {
         "stars.sox=bootstrap/web/stars.sox",
         "cube.sox=bootstrap/web/cube.sox",
         "fire.sox=bootstrap/web/fire.sox",
+        "logo.simg=sysroot/logo.simg",
+        "sample.png=sysroot/sample.png",
+        "calculator.sui=sysroot/calculator.sui",
+        "hello.sui=sysroot/hello.sui",
     });
     run_pack.has_side_effects = true;
 

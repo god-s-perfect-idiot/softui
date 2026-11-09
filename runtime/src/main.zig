@@ -7,10 +7,26 @@ const plasma = @import("plasma.zig");
 const stars = @import("stars.zig");
 const cube = @import("cube.zig");
 const fire = @import("fire.zig");
+const clock = @import("clock.zig");
+const cursor = @import("cursor.zig");
+const keys = @import("keys.zig");
+const image = @import("image.zig");
+const music = @import("music.zig");
+const paint = @import("paint.zig");
+const uikit = @import("uikit.zig");
+const colors = @import("colors.zig");
+const typo = @import("typo.zig");
+const sui_app = @import("sui_app.zig");
 const input = @import("input.zig");
 const softshell = @import("softshell.zig");
 const gui_mod = @import("gui.zig");
 const osk_mod = @import("osk.zig");
+const hostapi = @import("hostapi.zig");
+
+/// Factory demo assets (fallback when SoftFS predates packing these files).
+const EMBED_LOGO_SIMG = @embedFile("assets/logo.simg");
+const EMBED_CALC_SUI = @embedFile("assets/calculator.sui");
+const EMBED_HELLO_SUI = @embedFile("assets/hello.sui");
 
 const MAX_WIDTH: u32 = 1920;
 const MAX_HEIGHT: u32 = 1080;
@@ -26,6 +42,7 @@ const SESSION_GUI: u32 = 1;
 extern fn host_log(ptr: [*]const u8, len: u32) void;
 extern fn host_present() void;
 extern fn host_storage_write(ptr: [*]const u8, len: u32) void;
+// Additional Host ABI symbols live in hostapi.zig.
 
 var framebuffer: [MAX_PIXELS * BYTES_PER_PIXEL]u8 align(8) = undefined;
 var fb_width: u32 = 0;
@@ -125,6 +142,36 @@ fn hookFbFire(phase: u32) void {
     fire.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
 }
 
+fn shellClock(phase: u32, now_ns: u64) void {
+    clock.render(fbBytes(), fb_width, fb_height, fb_stride, phase, now_ns, boot_ns);
+}
+fn shellCursor(phase: u32) void {
+    cursor.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellKeys(phase: u32) void {
+    keys.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellImage(phase: u32) void {
+    image.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellMusic(phase: u32) void {
+    music.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellPaint(phase: u32) void {
+    paint.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellUikit(phase: u32) void {
+    uikit.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellColors(phase: u32) void {
+    colors.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellText(phase: u32) void {
+    typo.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
+fn shellSui(phase: u32) void {
+    sui_app.render(fbBytes(), fb_width, fb_height, fb_stride, phase);
+}
 fn shellDonut(phase_a: u32, phase_b: u32) void {
     hookFbDonut(phase_a, phase_b);
 }
@@ -139,6 +186,16 @@ fn shellCube(phase: u32) void {
 }
 fn shellFire(phase: u32) void {
     hookFbFire(phase);
+}
+fn shellDemoKey(mode: softshell.Mode, key: u32, mods: u32) void {
+    switch (mode) {
+        .keys => keys.pushKey(key, mods),
+        .music => music.onKey(key),
+        .paint => paint.onKey(key),
+        .uikit => uikit.onKey(key),
+        .colors => colors.onKey(key),
+        else => {},
+    }
 }
 
 fn shellFbFill(x: u32, y: u32, w: u32, h: u32, color: u32) void {
@@ -228,11 +285,22 @@ fn mountFsIfNeeded() void {
 }
 
 fn wireShellCallbacks() void {
+    shell.on_clock = shellClock;
+    shell.on_cursor = shellCursor;
+    shell.on_keys = shellKeys;
+    shell.on_image = shellImage;
+    shell.on_music = shellMusic;
+    shell.on_paint = shellPaint;
+    shell.on_uikit = shellUikit;
+    shell.on_colors = shellColors;
+    shell.on_text = shellText;
+    shell.on_sui = shellSui;
     shell.on_donut = shellDonut;
     shell.on_plasma = shellPlasma;
     shell.on_stars = shellStars;
     shell.on_cube = shellCube;
     shell.on_fire = shellFire;
+    shell.on_demo_key = shellDemoKey;
     shell.on_run_sox = shellRunSox;
     shell.on_fb_fill = shellFbFill;
     shell.on_reboot_shell = shellReboot;
@@ -242,10 +310,30 @@ fn wireShellCallbacks() void {
 }
 
 fn returnToDesktop() void {
+    // Home: keep sessions; stop audio spill from background music focus loss.
+    hostapi.audioStop();
     ui.returnToDesktop();
     shell.content_y = 0;
     shell.enterMode(.shell);
-    logMsg("softui: desktop");
+    shell.ready = true;
+    logMsg("softui: desktop (home)");
+}
+
+fn closeAppSession() void {
+    hostapi.audioStop();
+    // Gui.closeFocusedApp already ran session bookkeeping before this callback
+    // when wired from activateAt — but on_close_app is invoked FROM gui after
+    // removing the session. If gui switched to another session it will call
+    // on_launch again. If none remain, stage is desktop.
+    if (ui.stage == .desktop) {
+        shell.content_y = 0;
+        shell.enterMode(.shell);
+        logMsg("softui: session closed -> desktop");
+    }
+}
+
+fn goHome() void {
+    returnToDesktop();
 }
 
 fn toggleOsk() void {
@@ -287,32 +375,84 @@ fn launchFromDesktop(launch: gui_mod.Launch) void {
             shell.gui_hosted = true;
             logMsg("softui: launch SoftShell");
         },
-        .donut => {
-            ensureShellForDemo(fs_ptr);
-            shell.enterMode(.donut);
-            logMsg("softui: launch donut");
+        .clock => launchCapDemo(fs_ptr, .clock),
+        .cursor => launchCapDemo(fs_ptr, .cursor),
+        .keys => {
+            keys.reset();
+            launchCapDemo(fs_ptr, .keys);
         },
-        .plasma => {
-            ensureShellForDemo(fs_ptr);
-            shell.enterMode(.plasma);
-            logMsg("softui: launch plasma");
+        .image => launchCapDemo(fs_ptr, .image),
+        .music => {
+            music.reset();
+            launchCapDemo(fs_ptr, .music);
         },
-        .stars => {
-            ensureShellForDemo(fs_ptr);
-            shell.enterMode(.stars);
-            logMsg("softui: launch stars");
+        .paint => {
+            paint.reset();
+            launchCapDemo(fs_ptr, .paint);
         },
-        .cube => {
-            ensureShellForDemo(fs_ptr);
-            shell.enterMode(.cube);
-            logMsg("softui: launch cube");
+        .uikit => {
+            uikit.reset();
+            launchCapDemo(fs_ptr, .uikit);
         },
-        .fire => {
-            ensureShellForDemo(fs_ptr);
-            shell.enterMode(.fire);
-            logMsg("softui: launch fire");
+        .colors => {
+            colors.reset();
+            launchCapDemo(fs_ptr, .colors);
         },
+        .text => launchCapDemo(fs_ptr, .text),
+        .donut => launchCapDemo(fs_ptr, .donut),
+        .plasma => launchCapDemo(fs_ptr, .plasma),
+        .stars => launchCapDemo(fs_ptr, .stars),
+        .cube => launchCapDemo(fs_ptr, .cube),
+        .fire => launchCapDemo(fs_ptr, .fire),
+        .calc => launchSuiApp(fs_ptr, "calculator.sui"),
+        .hello => launchSuiApp(fs_ptr, "hello.sui"),
     }
+}
+
+fn launchCapDemo(fs_ptr: ?*softfs.Fs, mode: softshell.Mode) void {
+    ensureShellForDemo(fs_ptr);
+    if (mode == .image) loadImageAsset();
+    shell.enterMode(mode);
+    logMsg("softui: launch demo");
+}
+
+fn launchSuiApp(fs_ptr: ?*softfs.Fs, path: []const u8) void {
+    ensureShellForDemo(fs_ptr);
+    sui_app.reset();
+    var loaded = false;
+    if (fs_ok) {
+        if (fs.find(path)) |data| {
+            sui_app.loadSource(path, data);
+            loaded = true;
+        }
+    }
+    if (!loaded) {
+        if (std.mem.eql(u8, path, "calculator.sui")) {
+            sui_app.loadSource(path, EMBED_CALC_SUI);
+            loaded = true;
+        } else if (std.mem.eql(u8, path, "hello.sui")) {
+            sui_app.loadSource(path, EMBED_HELLO_SUI);
+            loaded = true;
+        }
+    }
+    if (!loaded) logMsg("softui: missing .sui");
+    shell.enterMode(.sui);
+    logMsg("softui: launch sui");
+}
+
+fn loadImageAsset() void {
+    image.reset();
+    if (fs_ok) {
+        if (fs.find("logo.simg")) |data| {
+            image.loadBytes("logo.simg", data);
+            return;
+        }
+        if (fs.find("sample.png")) |data| {
+            image.loadBytes("sample.png", data);
+            return;
+        }
+    }
+    image.loadBytes("logo.simg", EMBED_LOGO_SIMG);
 }
 
 fn ensureShellForDemo(fs_ptr: ?*softfs.Fs) void {
@@ -329,7 +469,8 @@ fn startBootloader() void {
     ui.on_choose_cli = enterCliSession;
     ui.on_choose_gui = enterGuiSession;
     ui.on_launch = launchFromDesktop;
-    ui.on_close_app = returnToDesktop;
+    ui.on_close_app = closeAppSession;
+    ui.on_home = goHome;
     ui.on_toggle_osk = toggleOsk;
     ui.start();
     logMsg("softui: bootloader");
@@ -400,14 +541,14 @@ export fn softui_tick(now_ns: u64) i32 {
     }
 
     if (session_kind == SESSION_CLI) {
-        shell.tick(@truncate(frame_count));
+        shell.tick(@truncate(frame_count), now_ns);
         shell.draw(fbBytes(), fb_width, fb_height, fb_stride);
     } else {
         ui.tick(now_ns, fb_width, fb_height);
         if (ui.stage == .app) {
-            shell.tick(@truncate(frame_count));
+            shell.tick(@truncate(frame_count), now_ns);
         } else if (ui.stage == .cli) {
-            shell.tick(@truncate(frame_count));
+            shell.tick(@truncate(frame_count), now_ns);
         }
         switch (ui.stage) {
             .bootloader, .desktop => {

@@ -24,6 +24,12 @@ A new host (native GLFW, embedded LCD, …) reimplements the same imports/export
 | `host_log(ptr, len)` | Debug UTF-8 (kernel + SoftASM `write`) | `console.log` |
 | `host_present()` | Signal FB ready after tick | no-op (JS blits anyway) |
 | `host_storage_write(ptr, len)` | Persist SoftFS image | base64 → `localStorage['softui.sofs']` |
+| `host_time_wall_ms()` | Wall clock (Clock demo) | `Date.now()` as `u64` |
+| `host_time_tz_min()` | Local TZ minutes east of UTC | `-getTimezoneOffset()` |
+| `host_audio_queue(...)` | Queue PCM s16le (Music) | Web Audio `AudioBufferSourceNode` |
+| `host_audio_stop()` | Stop audio | close `AudioContext` |
+| `host_image_decode(...)` | PNG/JPEG → RGBA8 | `createImageBitmap` (async; `-2` pending) |
+| `host_sui_paint(...)` | Paint `.sui` into SoftUI FB | vendored suigui SDK → OffscreenCanvas |
 
 Imports are declared `extern` in `main.zig` and provided under WASM module `env` by `softui.js`.
 

@@ -69,6 +69,7 @@ Mutable FS mounted from persisted host blob or `init.sofs`. Edits auto-persist v
 |------------|---------|--------|
 | Run `.sox` | `run <file.sox>` | **[shipped]** (burst) |
 | Donut / plasma / stars / cube / fire demos | SoftShell commands | **[shipped]** |
+| Capability demos (clock, cursor, keys, image, music, paint, uikit, colors, text) | SoftShell + desktop | **[shipped]** |
 | List SoftASM svc table | `svc` | **[shipped]** |
 | Long-running SoftASM takeover | yield + input handoff | **[planned]** |
 | Assemble from SoftShell | `asm` | **[planned]** |
@@ -109,6 +110,7 @@ Direct SoftUI runtime inspection and limited mutation from SoftShell.
 | SoftUI glyph console | **[shipped]** |
 | CLI fg/bg via `color` | **[shipped]** |
 | SoftUI demos (`donut` `plasma` `stars` `cube` `fire`) | **[shipped]** |
+| Capability demos (`clock` `cursor` `keys` `image` `music` `paint` `uikit` `colors` `text`) | **[shipped]** |
 | SoftUI GPU text / accel path | **[planned]** (still SoftUI-owned pixels) |
 | GUI boot chrome / desktop | **[shipped]** (Phase 4; SoftUI bootloader) |
 | Viewport auto-scale + pointer GUI | **[shipped]** (`softui_resize`, hit-test chrome) |
@@ -121,10 +123,17 @@ Direct SoftUI runtime inspection and limited mutation from SoftShell.
 
 | Capability | Status |
 |------------|--------|
-| Host ABI time (tick clock) | **[shipped]** (internal) |
-| Wall clock / sleep | **[planned]** |
+| Host ABI tick clock (`now_ns`) | **[shipped]** |
+| Wall clock + TZ | **[shipped]** (`host_time_wall_ms` / `host_time_tz_min`) |
+| `sleep` / alarms | **[planned]** |
+| Host ABI audio (PCM s16le) | **[shipped]** (`host_audio_queue`) |
+| SIMG + host PNG decode | **[shipped]** |
+| suigui host bridge | **[shipped]** (`host_sui_paint`; Calc/Hello) |
+| Session tray multitasking | **[shipped]** (home keeps apps; exit closes) |
 | Sockets via Host ABI | **[planned]** |
 | Clipboard Host ABI | **[planned]** |
+
+**Gap catalog:** [missing-capabilities.md](missing-capabilities.md).
 
 ---
 

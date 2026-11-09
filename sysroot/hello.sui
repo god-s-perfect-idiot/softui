@@ -1,0 +1,11 @@
+// Minimal suigui app — flow layout, no pixel positions.
+app "Hello"
+
+window title="Hello" fill {
+  col gap=16 pad=24 fill {
+    label #msg text="Hello from suigui" align="center"
+    button text="Wave" click {
+      msg.text = "Hello, SoftUI"
+    }
+  }
+}

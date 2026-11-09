@@ -4,15 +4,21 @@ import { drawText, measureText, GLYPH_H } from "./font.js";
 import { createEnv, runEvent } from "../lang/interpreter.js";
 
 const COLORS = {
-  bg: "#0b0e12",
-  panel: "#141a22",
-  bar: "#10161e",
+  bg: "#0a0c10",
+  panel: "#151a22",
+  bar: "#161c26",
   fg: "#d7e0ea",
   dim: "#7a8796",
   accent: "#50b4ff",
-  button: "#1a3048",
-  buttonHover: "#243d5c",
-  border: "#2a3544",
+  buttonTop: "#2a3644",
+  buttonBot: "#121820",
+  buttonHoverTop: "#3a6a98",
+  buttonHoverBot: "#1a3858",
+  rim: "#3a4858",
+  rimHot: "#7ec8ff",
+  wellTop: "#0a0c10",
+  wellBot: "#151a22",
+  border: "#3a4452",
 };
 
 const BAR_H = 36;
@@ -201,8 +207,13 @@ export function layoutTree(roots, viewportW, viewportH) {
 }
 
 function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
+  if (w <= 0 || h <= 0) return;
+  const rr = Math.min(Math.max(0, r), w / 2, h / 2);
   ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, rr);
+    return;
+  }
   ctx.moveTo(x + rr, y);
   ctx.arcTo(x + w, y, x + w, y + h, rr);
   ctx.arcTo(x + w, y + h, x, y + h, rr);
@@ -211,39 +222,110 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+function fillRound(ctx, x, y, w, h, r, fill) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function vGrad(ctx, x, y, h, top, bot) {
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, top);
+  g.addColorStop(1, bot);
+  return g;
+}
+
+function raisedControl(ctx, x, y, w, h, r, top, bot, rim) {
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+  fillRound(ctx, x, y, w, h, r, rim);
+  ctx.shadowColor = "transparent";
+  roundRect(ctx, x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1));
+  ctx.fillStyle = vGrad(ctx, x, y, h, top, bot);
+  ctx.fill();
+  // Specular band
+  roundRect(ctx, x + 3, y + 2, w - 6, Math.max(2, h / 5), Math.max(0, r - 2));
+  ctx.fillStyle = "rgba(255,255,255,0.28)";
+  ctx.fill();
+  // Bevel edges
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y + 1.5);
+  ctx.lineTo(x + w - r, y + 1.5);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.beginPath();
+  ctx.moveTo(x + r, y + h - 1.5);
+  ctx.lineTo(x + w - r, y + h - 1.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function insetWell(ctx, x, y, w, h, r, top, bot, rim) {
+  fillRound(ctx, x, y, w, h, r, rim);
+  roundRect(ctx, x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1));
+  ctx.fillStyle = vGrad(ctx, x, y, h, top, bot);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + 2.5);
+  ctx.lineTo(x + w - 2, y + 2.5);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + h - 2.5);
+  ctx.lineTo(x + w - 2, y + h - 2.5);
+  ctx.stroke();
+}
+
 export function paintTree(ctx, roots, viewportW, viewportH) {
-  ctx.fillStyle = COLORS.bg;
+  const plate = ctx.createLinearGradient(0, 0, 0, viewportH);
+  plate.addColorStop(0, "#12161c");
+  plate.addColorStop(1, "#07090c");
+  ctx.fillStyle = plate;
   ctx.fillRect(0, 0, viewportW, viewportH);
 
   function paint(node) {
     if (node.tag === "window") {
-      ctx.fillStyle = COLORS.bg;
-      ctx.fillRect(node.x, node.y, node.w, node.h);
-      ctx.fillStyle = COLORS.bar;
-      ctx.fillRect(node.x, node.y, node.w, BAR_H);
-      ctx.fillStyle = COLORS.border;
-      ctx.fillRect(node.x, node.y + BAR_H - 1, node.w, 1);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 18;
+      ctx.shadowOffsetY = 8;
+      fillRound(ctx, node.x, node.y, node.w, node.h, 12, COLORS.border);
+      ctx.shadowColor = "transparent";
+      roundRect(ctx, node.x, node.y, node.w, node.h, 12);
+      ctx.clip();
+      roundRect(ctx, node.x + 1, node.y + 1, node.w - 2, node.h - 2, 11);
+      ctx.fillStyle = vGrad(ctx, node.x, node.y, node.h, "#12161c", "#07090c");
+      ctx.fill();
+      // Raised title bar
+      roundRect(ctx, node.x + 1, node.y + 1, node.w - 2, BAR_H - 1, 11);
+      ctx.fillStyle = vGrad(ctx, node.x, node.y, BAR_H, "#2a3648", "#161c26");
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillRect(node.x + 1, node.y + 1, node.w - 2, 1);
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(node.x + 1, node.y + BAR_H - 1, node.w - 2, 1);
       drawText(ctx, node.props.title || "Window", node.x + 12, node.y + 11, COLORS.accent);
       for (const c of node.children) paint(c);
+      ctx.restore();
       return;
     }
 
     if (node.tag === "button") {
-      ctx.fillStyle = node.hover ? COLORS.buttonHover : COLORS.button;
-      roundRect(ctx, node.x, node.y, node.w, node.h, 6);
-      ctx.fill();
-      ctx.strokeStyle = COLORS.border;
-      ctx.lineWidth = 1;
-      roundRect(ctx, node.x + 0.5, node.y + 0.5, node.w - 1, node.h - 1, 6);
-      ctx.stroke();
+      const top = node.hover ? COLORS.buttonHoverTop : COLORS.buttonTop;
+      const bot = node.hover ? COLORS.buttonHoverBot : COLORS.buttonBot;
+      const rim = node.hover ? COLORS.rimHot : COLORS.rim;
+      raisedControl(ctx, node.x, node.y, node.w, node.h, 8, top, bot, rim);
       const m = measureText(node.props.text || "");
-      drawText(
-        ctx,
-        node.props.text || "",
-        node.x + (node.w - m.w) / 2,
-        node.y + (node.h - m.h) / 2,
-        COLORS.fg,
-      );
+      const tx = node.x + (node.w - m.w) / 2;
+      const ty = node.y + (node.h - m.h) / 2;
+      drawText(ctx, node.props.text || "", tx + 1, ty + 1, "rgba(0,0,0,0.55)");
+      drawText(ctx, node.props.text || "", tx, ty, node.hover ? "#e8f4ff" : COLORS.fg);
       return;
     }
 
@@ -259,20 +341,14 @@ export function paintTree(ctx, roots, viewportW, viewportH) {
     }
 
     if (node.tag === "field") {
-      ctx.fillStyle = COLORS.panel;
-      roundRect(ctx, node.x, node.y, node.w, node.h, 4);
-      ctx.fill();
-      ctx.strokeStyle = COLORS.border;
-      roundRect(ctx, node.x + 0.5, node.y + 0.5, node.w - 1, node.h - 1, 4);
-      ctx.stroke();
+      insetWell(ctx, node.x, node.y, node.w, node.h, 7, COLORS.wellTop, COLORS.wellBot, COLORS.border);
       const t = node.props.text || node.props.placeholder || "";
-      drawText(ctx, t, node.x + 8, node.y + (node.h - GLYPH_H) / 2, node.props.text ? COLORS.fg : COLORS.dim);
+      drawText(ctx, t, node.x + 10, node.y + (node.h - GLYPH_H) / 2, node.props.text ? COLORS.fg : COLORS.dim);
       return;
     }
 
     if (node.tag === "box") {
-      ctx.fillStyle = COLORS.panel;
-      ctx.fillRect(node.x, node.y, node.w, node.h);
+      insetWell(ctx, node.x, node.y, node.w, node.h, 6, COLORS.wellTop, COLORS.panel, COLORS.border);
     }
 
     for (const c of node.children) paint(c);

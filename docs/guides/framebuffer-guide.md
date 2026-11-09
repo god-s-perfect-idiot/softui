@@ -34,9 +34,9 @@ Exports: `softui_fb_ptr`, `softui_fb_width`, `softui_fb_height`, `softui_fb_stri
 
 ## Glyph console
 
-SoftUI ships a tiny bitmap font (`font.zig`). Console:
+SoftUI ships a 12×16 humanist bitmap font (`font.zig`). Console:
 
-- Cell width = glyph width; row pitch **16 px** (padding around glyph height)
+- Cell width = glyph width; row pitch **glyph height + 4 px** (leading/padding)
 - Up to 240×120 cells (clamped to FB)
 - Scrollback in fixed line buffers
 - Colors: fg / bg / cursor (`color` command); defaults near `#d7e0ea` on `#0b0e12`

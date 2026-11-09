@@ -6,7 +6,25 @@ const input = @import("input.zig");
 const softfs = @import("softfs.zig");
 const txedit_mod = @import("txedit.zig");
 
-pub const Mode = enum { shell, donut, plasma, stars, cube, fire, txedit };
+pub const Mode = enum {
+    shell,
+    clock,
+    cursor,
+    keys,
+    image,
+    music,
+    paint,
+    uikit,
+    colors,
+    text,
+    donut,
+    plasma,
+    stars,
+    cube,
+    fire,
+    sui,
+    txedit,
+};
 
 pub const KernelInfo = struct {
     frame: u32 = 0,
@@ -32,12 +50,24 @@ pub const SoftShell = struct {
     ready: bool = false,
     fs: ?*softfs.Fs = null,
     frame: u32 = 0,
+    now_ns: u64 = 0,
     kinfo: KernelInfo = .{},
+    on_clock: ?*const fn (phase: u32, now_ns: u64) void = null,
+    on_cursor: ?*const fn (phase: u32) void = null,
+    on_keys: ?*const fn (phase: u32) void = null,
+    on_image: ?*const fn (phase: u32) void = null,
+    on_music: ?*const fn (phase: u32) void = null,
+    on_paint: ?*const fn (phase: u32) void = null,
+    on_uikit: ?*const fn (phase: u32) void = null,
+    on_colors: ?*const fn (phase: u32) void = null,
+    on_text: ?*const fn (phase: u32) void = null,
+    on_sui: ?*const fn (phase: u32) void = null,
     on_donut: ?*const fn (phase_a: u32, phase_b: u32) void = null,
     on_plasma: ?*const fn (phase: u32) void = null,
     on_stars: ?*const fn (phase: u32) void = null,
     on_cube: ?*const fn (phase: u32) void = null,
     on_fire: ?*const fn (phase: u32) void = null,
+    on_demo_key: ?*const fn (mode: Mode, key: u32, mods: u32) void = null,
     on_run_sox: ?*const fn (name: []const u8) void = null,
     on_fb_fill: ?*const fn (x: u32, y: u32, w: u32, h: u32, color: u32) void = null,
     on_reboot_shell: ?*const fn () void = null,
@@ -121,9 +151,10 @@ pub const SoftShell = struct {
         self.cons.setInputLine(self.prompt(), self.line[0..self.line_len]);
     }
 
-    pub fn tick(self: *SoftShell, frame: u32) void {
+    pub fn tick(self: *SoftShell, frame: u32, now_ns: u64) void {
         if (!self.ready) return;
         self.frame = frame;
+        self.now_ns = now_ns;
         self.kinfo.frame = frame;
         while (input.pop()) |ev| self.handleKey(ev);
         if (self.mode == .shell) self.cons.tickBlink();
@@ -135,12 +166,26 @@ pub const SoftShell = struct {
         switch (self.mode) {
             .shell => self.cons.draw(fb, width, height, stride, true, self.content_y),
             .txedit => self.editor.draw(fb, width, height, stride),
+            .clock => if (self.on_clock) |d| d(self.frame, self.now_ns),
+            .cursor => if (self.on_cursor) |d| d(self.frame),
+            .keys => if (self.on_keys) |d| d(self.frame),
+            .image => if (self.on_image) |d| d(self.frame),
+            .music => if (self.on_music) |d| d(self.frame),
+            .paint => if (self.on_paint) |d| d(self.frame),
+            .uikit => if (self.on_uikit) |d| d(self.frame),
+            .colors => if (self.on_colors) |d| d(self.frame),
+            .text => if (self.on_text) |d| d(self.frame),
+            .sui => if (self.on_sui) |d| d(self.frame),
             .donut => if (self.on_donut) |d| d(self.frame *% 7, self.frame *% 5),
             .plasma => if (self.on_plasma) |d| d(self.frame),
             .stars => if (self.on_stars) |d| d(self.frame),
             .cube => if (self.on_cube) |d| d(self.frame *% 3),
             .fire => if (self.on_fire) |d| d(self.frame),
         }
+    }
+
+    fn isInteractiveDemo(mode: Mode) bool {
+        return mode == .keys or mode == .music or mode == .paint or mode == .uikit or mode == .colors or mode == .sui;
     }
 
     fn handleKey(self: *SoftShell, ev: input.Event) void {
@@ -160,7 +205,11 @@ pub const SoftShell = struct {
             return;
         }
         if (self.mode != .shell) {
-            self.returnFromApp();
+            if (ev.key == input.KEY_ESCAPE or !isInteractiveDemo(self.mode)) {
+                self.returnFromApp();
+                return;
+            }
+            if (self.on_demo_key) |cb| cb(self.mode, ev.key, ev.mods);
             return;
         }
         const key = ev.key;
@@ -283,6 +332,56 @@ pub const SoftShell = struct {
             return self.cmdTxedit(argv[1]);
         }
 
+        if (eql(cmd, "clock")) {
+            self.cons.write("clock demo - Esc to return\n");
+            self.mode = .clock;
+            return;
+        }
+        if (eql(cmd, "cursor")) {
+            self.cons.write("cursor demo - Esc to return\n");
+            self.mode = .cursor;
+            return;
+        }
+        if (eql(cmd, "keys")) {
+            self.cons.write("keys demo - Esc to return\n");
+            self.mode = .keys;
+            return;
+        }
+        if (eql(cmd, "image")) {
+            self.cons.write("image demo - Esc to return\n");
+            self.mode = .image;
+            return;
+        }
+        if (eql(cmd, "calc") or eql(cmd, "sui") or eql(cmd, "hello")) {
+            self.cons.write("suigui app - Esc to return\n");
+            self.mode = .sui;
+            return;
+        }
+        if (eql(cmd, "music")) {
+            self.cons.write("music demo - Esc to return\n");
+            self.mode = .music;
+            return;
+        }
+        if (eql(cmd, "paint")) {
+            self.cons.write("paint demo - Esc to return\n");
+            self.mode = .paint;
+            return;
+        }
+        if (eql(cmd, "uikit") or eql(cmd, "ui")) {
+            self.cons.write("uikit demo - Esc to return\n");
+            self.mode = .uikit;
+            return;
+        }
+        if (eql(cmd, "colors") or eql(cmd, "colorpicker")) {
+            self.cons.write("colors demo - Esc to return\n");
+            self.mode = .colors;
+            return;
+        }
+        if (eql(cmd, "text") or eql(cmd, "typo") or eql(cmd, "glyphs")) {
+            self.cons.write("text demo - Esc to return\n");
+            self.mode = .text;
+            return;
+        }
         if (eql(cmd, "donut")) {
             self.cons.write("donut demo - press any key to return\n");
             self.mode = .donut;
@@ -351,7 +450,9 @@ pub const SoftShell = struct {
             self.cons.write("  kinfo|sysinfo mem ticks svc reboot caps\n");
             self.cons.write("  color [#hex|fg|bg|reset]\n");
             self.cons.write("  fb clear <color> | fb fill x y w h color\n");
-            self.cons.write("  demos: donut plasma stars cube fire\n");
+            self.cons.write("  demos: clock cursor keys image music paint\n");
+            self.cons.write("         uikit colors text\n");
+            self.cons.write("         donut plasma stars cube fire\n");
             self.cons.write("  run <file.sox>\n");
             return;
         }
@@ -368,15 +469,17 @@ pub const SoftShell = struct {
         self.cons.write("  fs: pwd cd ls tree cat touch mkdir rm mv cp write sync\n");
         self.cons.write("  apps: color  txedit|nano|edit <path>\n");
         self.cons.write("  k:  kinfo mem ticks svc fb reboot run caps\n");
-        self.cons.write("  demos: donut plasma stars cube fire\n");
+        self.cons.write("  demos: clock cursor keys image music paint uikit\n");
+        self.cons.write("         colors text donut plasma stars cube fire\n");
     }
 
     fn cmdCaps(self: *SoftShell) void {
         self.cons.write("Full catalog: docs/softshell.md\n");
+        self.cons.write("Gaps list: docs/missing-capabilities.md\n");
         self.cons.write("Shipped: SoftFS CRUD+dirs+sync, color, txedit,\n");
-        self.cons.write("  fb poke, kinfo/mem, demos, SoftASM run.\n");
+        self.cons.write("  fb poke, kinfo/mem, OS demos, SoftASM run.\n");
         self.cons.write("Planned: scripts/vars/pipes, net, sched/proc,\n");
-        self.cons.write("  SoftASM debug, peek/poke.\n");
+        self.cons.write("  audio, wall clock, SoftASM debug, peek/poke.\n");
     }
 
     fn persistFs(self: *SoftShell) void {

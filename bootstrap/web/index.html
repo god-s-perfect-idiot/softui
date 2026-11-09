@@ -16,7 +16,9 @@
       display: block;
       width: 100%;
       height: 100%;
+      /* Nearest-neighbor: bilinear scale turns 1-bit glyphs into a grey halo. */
       image-rendering: pixelated;
+      image-rendering: crisp-edges;
     }
   </style>
 </head>

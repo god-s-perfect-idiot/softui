@@ -249,7 +249,7 @@ pub const Osk = struct {
                 var label_buf: [8]u8 = undefined;
                 const label = keyLabel(spec, self.shift_on, &label_buf);
                 const fg = if (mod_lit) COLOR_ACCENT else COLOR_FG;
-                const lx = x + (kw_px -| @as(u32, @intCast(label.len * font.GLYPH_W))) / 2;
+                const lx = x + (kw_px -| font.textWidth(label)) / 2;
                 const ly = y + (KEY_H -| font.GLYPH_H) / 2;
                 drawText(fb, stride, width, lx, ly, label, fg);
 
@@ -379,23 +379,5 @@ fn put(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {
 }
 
 fn drawText(fb: []u8, stride: u32, width: u32, x0: u32, y0: u32, text: []const u8, color: u32) void {
-    var i: u32 = 0;
-    for (text) |ch| {
-        drawGlyph(fb, stride, width, x0 + i * font.GLYPH_W, y0, ch, color);
-        i += 1;
-    }
-}
-
-fn drawGlyph(fb: []u8, stride: u32, width: u32, x0: u32, y0: u32, ch: u8, color: u32) void {
-    const g = font.glyph(ch);
-    var row: u32 = 0;
-    while (row < 8) : (row += 1) {
-        const bits = g.*[row];
-        var col: u32 = 0;
-        while (col < 8) : (col += 1) {
-            if ((bits & (@as(u8, 1) << @intCast(col))) != 0) {
-                put(fb, stride, width, x0 + col, y0 + row, color);
-            }
-        }
-    }
+    font.blitText(fb, stride, width, x0, y0, text, color);
 }

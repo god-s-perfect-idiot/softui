@@ -1,0 +1,35 @@
+app "Calculator"
+
+window title="Calculator" fill {
+  col gap=12 pad=16 fill {
+    label #display text="0" align="end" grow
+
+    row gap=8 {
+      button grow text="7" click="display.text = display.text + '7'"
+      button grow text="8" click="display.text = display.text + '8'"
+      button grow text="9" click="display.text = display.text + '9'"
+    }
+
+    row gap=8 {
+      button grow text="4" click="display.text = display.text + '4'"
+      button grow text="5" click="display.text = display.text + '5'"
+      button grow text="6" click="display.text = display.text + '6'"
+    }
+
+    row gap=8 {
+      button grow text="1" click="display.text = display.text + '1'"
+      button grow text="2" click="display.text = display.text + '2'"
+      button grow text="3" click="display.text = display.text + '3'"
+    }
+
+    row gap=8 {
+      button grow text="0" click="display.text = display.text + '0'"
+      button grow text="C" click {
+        display.text = "0"
+      }
+      button grow text="=" click {
+        display.text = display.text
+      }
+    }
+  }
+}

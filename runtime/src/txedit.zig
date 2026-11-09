@@ -10,7 +10,7 @@ const MAX_LINES: usize = 80;
 const MAX_COLS: usize = 120;
 const BUF_CHARS: usize = MAX_LINES * MAX_COLS;
 
-const LINE_HEIGHT: u32 = 16;
+const LINE_HEIGHT: u32 = font.GLYPH_H + 4;
 const GLYPH_Y_PAD: u32 = (LINE_HEIGHT - font.GLYPH_H) / 2;
 
 pub const Action = enum {
@@ -450,15 +450,5 @@ fn put(fb: []u8, stride: u32, width: u32, x: u32, y: u32, color: u32) void {
 }
 
 fn drawGlyph(fb: []u8, stride: u32, width: u32, x0: u32, y0: u32, ch: u8, color: u32) void {
-    const g = font.glyph(ch);
-    var row: u32 = 0;
-    while (row < 8) : (row += 1) {
-        const bits = g.*[row];
-        var col: u32 = 0;
-        while (col < 8) : (col += 1) {
-            if ((bits & (@as(u8, 1) << @intCast(col))) != 0) {
-                put(fb, stride, width, x0 + col, y0 + row, color);
-            }
-        }
-    }
+    font.blitGlyph(fb, stride, width, x0, y0, ch, color);
 }

@@ -38,6 +38,7 @@ When behavior changes, update the matching **guide** (narrative) and **reference
 
 | Doc | Covers |
 |-----|--------|
+| [missing-capabilities.md](missing-capabilities.md) | Desktop demos vs Host/guest gaps; how apps should look |
 | [architecture.md](architecture.md) | Layer diagram + phase status |
 | [host-abi.md](host-abi.md) | Export/import symbol table |
 | [isa.md](isa.md) | SoftASM opcodes, syscalls, `.sox` / `.sofs` layouts |

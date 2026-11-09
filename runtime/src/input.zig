@@ -40,6 +40,9 @@ var p_head: usize = 0;
 var p_tail: usize = 0;
 var p_count: usize = 0;
 
+/// Most recent pointer sample (updated on every push, even if the queue drops).
+pub var latest: Pointer = .{ .x = 0, .y = 0, .buttons = 0, .kind = 0 };
+
 pub fn reset() void {
     head = 0;
     tail = 0;
@@ -47,6 +50,7 @@ pub fn reset() void {
     p_head = 0;
     p_tail = 0;
     p_count = 0;
+    latest = .{ .x = 0, .y = 0, .buttons = 0, .kind = 0 };
 }
 
 pub fn push(key: u32, mods: u32) void {
@@ -72,11 +76,12 @@ pub fn pending() usize {
 }
 
 pub fn pushPointer(x: u32, y: u32, buttons: u32, kind: u32) void {
+    latest = .{ .x = x, .y = y, .buttons = buttons, .kind = kind };
     if (p_count == CAP) {
         p_head = (p_head + 1) % CAP;
         p_count -= 1;
     }
-    pq[p_tail] = .{ .x = x, .y = y, .buttons = buttons, .kind = kind };
+    pq[p_tail] = latest;
     p_tail = (p_tail + 1) % CAP;
     p_count += 1;
 }

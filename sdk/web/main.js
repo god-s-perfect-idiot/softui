@@ -12,7 +12,11 @@ const statusEl = document.getElementById("status");
 const exampleEl = document.getElementById("example");
 const reloadBtn = document.getElementById("reload");
 const canvas = document.getElementById("view");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", { alpha: false });
+
+/** Layout / hit-test size in CSS pixels (backing store is × devicePixelRatio). */
+let viewW = 360;
+let viewH = 480;
 
 let runtime = null;
 let raf = 0;
@@ -20,6 +24,31 @@ let raf = 0;
 function setStatus(msg, isError = false) {
   statusEl.textContent = msg;
   statusEl.classList.toggle("error", isError);
+}
+
+/**
+ * Match canvas buffer to CSS box × scale.
+ * Use at least 2× so rounded corners and glyphs get real AA even when DPR is 1
+ * (browser then downscales the sharper buffer into the CSS box).
+ */
+function syncCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const scale = Math.max(2, dpr);
+  const cssW = Math.max(1, Math.round(rect.width || canvas.clientWidth || 360));
+  const cssH = Math.max(1, Math.round(rect.height || canvas.clientHeight || 480));
+  const bw = Math.max(1, Math.round(cssW * scale));
+  const bh = Math.max(1, Math.round(cssH * scale));
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  viewW = cssW;
+  viewH = cssH;
+  return { w: cssW, h: cssH };
 }
 
 async function loadExample(name) {
@@ -50,20 +79,23 @@ function compileAndRun() {
 }
 
 function paintEmpty() {
+  syncCanvas();
   ctx.fillStyle = "#0b0e12";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, viewW, viewH);
 }
 
 function frame() {
   if (!runtime) return;
-  layoutTree(runtime.roots, canvas.width, canvas.height);
-  paintTree(ctx, runtime.roots, canvas.width, canvas.height);
+  syncCanvas();
+  layoutTree(runtime.roots, viewW, viewH);
+  paintTree(ctx, runtime.roots, viewW, viewH);
 }
 
 function pointerPos(ev) {
   const rect = canvas.getBoundingClientRect();
-  const x = ((ev.clientX - rect.left) / rect.width) * canvas.width;
-  const y = ((ev.clientY - rect.top) / rect.height) * canvas.height;
+  if (rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0 };
+  const x = ((ev.clientX - rect.left) / rect.width) * viewW;
+  const y = ((ev.clientY - rect.top) / rect.height) * viewH;
   return { x, y };
 }
 
@@ -113,6 +145,18 @@ exampleEl.addEventListener("change", async () => {
     setStatus(e.message || String(e), true);
   }
 });
+
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => {
+    if (runtime) frame();
+    else paintEmpty();
+  }).observe(canvas);
+} else {
+  window.addEventListener("resize", () => {
+    if (runtime) frame();
+    else paintEmpty();
+  });
+}
 
 (async function boot() {
   try {
